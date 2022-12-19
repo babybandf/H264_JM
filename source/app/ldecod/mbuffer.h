@@ -62,7 +62,7 @@ typedef struct storable_picture
   int         non_existing;
   int         separate_colour_plane_flag;
 
-  short       max_slice_id;
+  int         max_slice_id;
 
   int         size_x, size_y, size_x_cr, size_y_cr;
   int         size_x_m1, size_y_m1, size_x_cr_m1, size_y_cr_m1;

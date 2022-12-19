@@ -403,7 +403,7 @@ typedef struct slice
   //information need to move to slice;
   unsigned int current_mb_nr; // bitstream order
   unsigned int num_dec_mb;
-  short        current_slice_nr;
+  int          current_slice_nr;
   //int mb_x;
   //int mb_y;
   //int block_x;

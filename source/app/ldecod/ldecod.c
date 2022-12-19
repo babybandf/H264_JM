@@ -672,11 +672,16 @@ DataPartition *AllocPartition(int n)
       snprintf(errortext, ET_SIZE, "AllocPartition: Memory allocation for Bitstream failed");
       error(errortext, 100);
     }
-    dataPart->bitstream->streamBuffer = (byte *) calloc(MAX_CODED_FRAME_SIZE, sizeof(byte));
-    if (dataPart->bitstream->streamBuffer == NULL)
+
+    dataPart->bitstream->streamBuffer = NULL;
+    if (n != 3)
     {
-      snprintf(errortext, ET_SIZE, "AllocPartition: Memory allocation for streamBuffer failed");
-      error(errortext, 100);
+        dataPart->bitstream->streamBuffer = (byte*)calloc(MAX_CODED_FRAME_SIZE, sizeof(byte));
+        if (dataPart->bitstream->streamBuffer == NULL)
+        {
+            snprintf(errortext, ET_SIZE, "AllocPartition: Memory allocation for streamBuffer failed");
+            error(errortext, 100);
+        }
     }
   }
   return partArr;
@@ -744,19 +749,11 @@ Slice *malloc_slice(InputParameters *p_Inp, VideoParameters *p_Vid)
 
   currSlice->max_part_nr = 3;  //! assume data partitioning (worst case) for the following mallocs()
   currSlice->partArr = AllocPartition(currSlice->max_part_nr);
-
   memory_size += get_mem2Dwp (&(currSlice->wp_params), 2, MAX_REFERENCE_PICTURES);
 
   memory_size += get_mem3Dint(&(currSlice->wp_weight), 2, MAX_REFERENCE_PICTURES, 3);
   memory_size += get_mem3Dint(&(currSlice->wp_offset), 6, MAX_REFERENCE_PICTURES, 3);
-  memory_size += get_mem4Dint(&(currSlice->wbp_weight), 6, MAX_REFERENCE_PICTURES, MAX_REFERENCE_PICTURES, 3);
 
-  memory_size += get_mem3Dpel(&(currSlice->mb_pred), MAX_PLANE, MB_BLOCK_SIZE, MB_BLOCK_SIZE);
-  memory_size += get_mem3Dpel(&(currSlice->mb_rec ), MAX_PLANE, MB_BLOCK_SIZE, MB_BLOCK_SIZE);
-  memory_size += get_mem3Dint(&(currSlice->mb_rres), MAX_PLANE, MB_BLOCK_SIZE, MB_BLOCK_SIZE);
-  memory_size += get_mem3Dint(&(currSlice->cof    ), MAX_PLANE, MB_BLOCK_SIZE, MB_BLOCK_SIZE);
-  //  memory_size += get_mem3Dint(&(currSlice->fcf    ), MAX_PLANE, MB_BLOCK_SIZE, MB_BLOCK_SIZE);
-  allocate_pred_mem(currSlice);
 #if (MVC_EXTENSION_ENABLE)
   currSlice->view_id = MVC_INIT_VIEW_ID;
   currSlice->inter_view_flag = 0;
@@ -802,17 +799,9 @@ static void free_slice(Slice *currSlice)
 
   if (currSlice->slice_type != I_SLICE && currSlice->slice_type != SI_SLICE)
   free_ref_pic_list_reordering_buffer(currSlice);
-  free_pred_mem(currSlice);
-  free_mem3Dint(currSlice->cof    );
-  free_mem3Dint(currSlice->mb_rres);
-  free_mem3Dpel(currSlice->mb_rec );
-  free_mem3Dpel(currSlice->mb_pred);
-
   free_mem2Dwp (currSlice->wp_params );
   free_mem3Dint(currSlice->wp_weight );
   free_mem3Dint(currSlice->wp_offset );
-  free_mem4Dint(currSlice->wbp_weight);
-
   FreePartition (currSlice->partArr, 3);
 
   //if (1)

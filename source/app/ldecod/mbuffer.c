@@ -615,20 +615,6 @@ StorablePicture* alloc_storable_picture(VideoParameters *p_Vid, PictureStructure
   s->top_poc = s->bottom_poc = s->poc = 0;
   s->seiHasTone_mapping = 0;
 
-  if(!p_Vid->active_sps->frame_mbs_only_flag && structure != FRAME)
-  {
-    int i, j;
-    for(j = 0; j < MAX_NUM_SLICES; j++)
-    {
-      for (i = 0; i < 2; i++)
-      {
-        s->listX[j][i] = calloc(MAX_LIST_SIZE, sizeof (StorablePicture*)); // +1 for reordering
-        if (NULL==s->listX[j][i])
-        no_mem_exit("alloc_storable_picture: s->listX[i]");
-      }
-    }
-  }
-
   return s;
 }
 
@@ -2263,6 +2249,19 @@ static void gen_field_ref_ids(VideoParameters *p_Vid, StorablePicture *p)
   //copy the list;
   for(j=0; j<p_Vid->iSliceNumOfCurrPic; j++)
   {
+    if (!p_Vid->active_sps->frame_mbs_only_flag && p->structure != FRAME)
+    {
+        for (i = 0; i < 2; i++)
+        {
+            if (p->listX[j][i] == NULL)
+            {
+                p->listX[j][i] = calloc(MAX_LIST_SIZE, sizeof(StorablePicture*)); // +1 for reordering
+                if (NULL == p->listX[j][i])
+                    no_mem_exit("gen_field_ref_ids: p->listX[j][i]");
+            }
+        }
+    }
+
     if(p->listX[j][LIST_0])
     {
       p->listXsize[j][LIST_0] =  p_Vid->ppSliceList[j]->listXsize[LIST_0];
@@ -2582,9 +2581,9 @@ void dpb_combine_field(VideoParameters *p_Vid, FrameStore *fs)
       /* bug: top field list doesnot exist.*/
       l = fs->top_field->mv_info[j][i].slice_no;
       k = fs->top_field->mv_info[j][i].ref_idx[LIST_0];
-      fs->frame->mv_info[jj][i].ref_pic[LIST_0] = k>=0? fs->top_field->listX[l][LIST_0][k]: NULL;  
+      fs->frame->mv_info[jj][i].ref_pic[LIST_0] = k >= 0 && fs->top_field->listX[l][LIST_0] ? fs->top_field->listX[l][LIST_0][k] : NULL;
       k = fs->top_field->mv_info[j][i].ref_idx[LIST_1];
-      fs->frame->mv_info[jj][i].ref_pic[LIST_1] = k>=0? fs->top_field->listX[l][LIST_1][k]: NULL;
+      fs->frame->mv_info[jj][i].ref_pic[LIST_1] = k >= 0 && fs->top_field->listX[l][LIST_1] ? fs->top_field->listX[l][LIST_1][k] : NULL;
 
       //! association with id already known for fields.
       fs->frame->mv_info[jj4][i].mv[LIST_0] = fs->bottom_field->mv_info[j][i].mv[LIST_0];
@@ -2594,10 +2593,11 @@ void dpb_combine_field(VideoParameters *p_Vid, FrameStore *fs)
       fs->frame->mv_info[jj4][i].ref_idx[LIST_1]  = fs->bottom_field->mv_info[j][i].ref_idx[LIST_1];
       l = fs->bottom_field->mv_info[j][i].slice_no;
 
+
       k = fs->bottom_field->mv_info[j][i].ref_idx[LIST_0];
-      fs->frame->mv_info[jj4][i].ref_pic[LIST_0] = k>=0? fs->bottom_field->listX[l][LIST_0][k]: NULL;
+      fs->frame->mv_info[jj4][i].ref_pic[LIST_0] = k >= 0 && fs->bottom_field->listX[l][LIST_0] ? fs->bottom_field->listX[l][LIST_0][k] : NULL;
       k = fs->bottom_field->mv_info[j][i].ref_idx[LIST_1];
-      fs->frame->mv_info[jj4][i].ref_pic[LIST_1] = k>=0? fs->bottom_field->listX[l][LIST_1][k]: NULL;
+      fs->frame->mv_info[jj4][i].ref_pic[LIST_1] = k >= 0 && fs->bottom_field->listX[l][LIST_1] ? fs->bottom_field->listX[l][LIST_1][k] : NULL;
     }
   }
 }

@@ -880,8 +880,8 @@ int decode_one_frame(DecoderParams *pDecoder)
 
     if((current_header != SOP && current_header !=EOS) || (p_Vid->iSliceNumOfCurrPic==0 && current_header == SOP))
     {
-       currSlice->current_slice_nr = (short) p_Vid->iSliceNumOfCurrPic;
-       p_Vid->dec_picture->max_slice_id = (short) imax(currSlice->current_slice_nr, p_Vid->dec_picture->max_slice_id);
+       currSlice->current_slice_nr = p_Vid->iSliceNumOfCurrPic;
+       p_Vid->dec_picture->max_slice_id = imax(currSlice->current_slice_nr, p_Vid->dec_picture->max_slice_id);
        if(p_Vid->iSliceNumOfCurrPic >0)
        {
          CopyPOC(*ppSliceList, currSlice);
@@ -937,8 +937,22 @@ int decode_one_frame(DecoderParams *pDecoder)
       assert(current_header != EOS);
       assert(currSlice->current_slice_nr == iSliceNo);
 
+      get_mem4Dint(&(currSlice->wbp_weight), 6, MAX_REFERENCE_PICTURES, MAX_REFERENCE_PICTURES, 3);
+      get_mem3Dpel(&(currSlice->mb_pred), MAX_PLANE, MB_BLOCK_SIZE, MB_BLOCK_SIZE);
+      get_mem3Dpel(&(currSlice->mb_rec), MAX_PLANE, MB_BLOCK_SIZE, MB_BLOCK_SIZE);
+      get_mem3Dint(&(currSlice->mb_rres), MAX_PLANE, MB_BLOCK_SIZE, MB_BLOCK_SIZE);
+      get_mem3Dint(&(currSlice->cof), MAX_PLANE, MB_BLOCK_SIZE, MB_BLOCK_SIZE);
+      allocate_pred_mem(currSlice);
+
       init_slice(p_Vid, currSlice);
       decode_slice(currSlice, current_header);
+
+      free_pred_mem(currSlice);
+      free_mem3Dint(currSlice->cof);
+      free_mem3Dint(currSlice->mb_rres);
+      free_mem3Dpel(currSlice->mb_rec);
+      free_mem3Dpel(currSlice->mb_pred);
+      free_mem4Dint(currSlice->wbp_weight);
 
       p_Vid->iNumOfSlicesDecoded++;
       p_Vid->num_dec_mb += currSlice->num_dec_mb;
@@ -1437,6 +1451,15 @@ process_nalu:
         currStream = currSlice->partArr[0].bitstream;
         currStream->ei_flag = 0;
         currStream->frame_bitoffset = currStream->read_len = 0;
+
+        free(currStream->streamBuffer);
+        currStream->streamBuffer = (byte*)calloc(nalu->len, sizeof(byte));
+        if (currStream->streamBuffer == NULL)
+        {
+            snprintf(errortext, ET_SIZE, "read_new_slice: Memory allocation for streamBuffer failed");
+            error(errortext, 100);
+        }
+
         fast_memcpy (currStream->streamBuffer, &nalu->buf[1], nalu->len-1);
         currStream->code_len = currStream->bitstream_length = RBSPtoSODB(currStream->streamBuffer, nalu->len-1);
       }
@@ -1576,6 +1599,15 @@ process_nalu:
       currStream             = currSlice->partArr[0].bitstream;
       currStream->ei_flag    = 0;
       currStream->frame_bitoffset = currStream->read_len = 0;
+
+      free(currStream->streamBuffer);
+      currStream->streamBuffer = (byte*)calloc(nalu->len, sizeof(byte));
+      if (currStream->streamBuffer == NULL)
+      {
+          snprintf(errortext, ET_SIZE, "read_new_slice: Memory allocation for streamBuffer failed");
+          error(errortext, 100);
+      }
+
       memcpy (currStream->streamBuffer, &nalu->buf[1], nalu->len-1);
       currStream->code_len = currStream->bitstream_length = RBSPtoSODB(currStream->streamBuffer, nalu->len-1);
 #if MVC_EXTENSION_ENABLE
@@ -1639,6 +1671,14 @@ process_nalu:
         currStream->ei_flag    = 0;
         currStream->frame_bitoffset = currStream->read_len = 0;
 
+        free(currStream->streamBuffer);
+        currStream->streamBuffer = (byte*)calloc(nalu->len, sizeof(byte));
+        if (currStream->streamBuffer == NULL)
+        {
+            snprintf(errortext, ET_SIZE, "read_new_slice: Memory allocation for streamBuffer failed");
+            error(errortext, 100);
+        }
+
         memcpy (currStream->streamBuffer, &nalu->buf[1], nalu->len-1);
         currStream->code_len = currStream->bitstream_length = RBSPtoSODB(currStream->streamBuffer, nalu->len-1);
 
@@ -1673,6 +1713,14 @@ process_nalu:
         currStream             = currSlice->partArr[2].bitstream;
         currStream->ei_flag    = 0;
         currStream->frame_bitoffset = currStream->read_len = 0;
+
+        free(currStream->streamBuffer);
+        currStream->streamBuffer = (byte*)calloc(nalu->len, sizeof(byte));
+        if (currStream->streamBuffer == NULL)
+        {
+            snprintf(errortext, ET_SIZE, "read_new_slice: Memory allocation for streamBuffer failed");
+            error(errortext, 100);
+        }
 
         memcpy (currStream->streamBuffer, &nalu->buf[1], nalu->len-1);
         currStream->code_len = currStream->bitstream_length = RBSPtoSODB(currStream->streamBuffer, nalu->len-1);
