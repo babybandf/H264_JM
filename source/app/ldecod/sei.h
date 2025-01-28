@@ -11,6 +11,8 @@
 #ifndef SEI_H
 #define SEI_H
 
+#define JVET_AE0101_PHASE_INDICATION_SEI_MESSAGE 1
+
 typedef enum {
   SEI_BUFFERING_PERIOD = 0,
   SEI_PIC_TIMING,
@@ -59,6 +61,9 @@ typedef enum {
   SEI_BASE_VIEW_TEMPORAL_HRD,
   SEI_FRAME_PACKING_ARRANGEMENT,
   SEI_GREEN_METADATA=56,
+#if JVET_AE0101_PHASE_INDICATION_SEI_MESSAGE
+  SEI_PHASE_INDICATION = 212,
+#endif
 
   SEI_MAX_ELEMENTS  //!< number of maximum syntax elements
 } SEI_type;
@@ -154,6 +159,9 @@ void interpret_post_filter_hints_info                   ( byte* payload, int siz
 void interpret_tone_mapping                             ( byte* payload, int size, VideoParameters *p_Vid );
 void interpret_frame_packing_arrangement_info           ( byte* payload, int size, VideoParameters *p_Vid );
 void interpret_green_metadata_info                       (byte* payload, int size, VideoParameters *p_Vid );
+#if JVET_AE0101_PHASE_INDICATION_SEI_MESSAGE
+void interpret_phase_indication_info                    ( byte* payload, int size, VideoParameters *p_Vid );
+#endif
 
 #if (ENABLE_OUTPUT_TONEMAPPING)
 void tone_map               (imgpel** imgX, imgpel* lut, int size_x, int size_y);

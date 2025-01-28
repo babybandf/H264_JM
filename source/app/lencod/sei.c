@@ -50,6 +50,12 @@ static void ClearPostFilterHints       (SEIParameters *p_SEI);
 static void ClosePostFilterHints       (SEIParameters *p_SEI);
 static void InitFramePackingArrangement(VideoParameters *p_Vid);
 static void CloseFramePackingArrangement(SEIParameters *p_SEI);
+#if JVET_AE0101_PHASE_INDICATION_SEI_MESSAGE
+static void InitPhaseIndication(SEIParameters *p_SEI);
+static void ClearPhaseIndication(SEIParameters *p_SEI);
+static void ClosePhaseIndication(SEIParameters *p_SEI);
+static void FinalizePhaseIndication(SEIParameters *p_SEI);
+#endif
 
 void init_sei(SEIParameters *p_SEI)
 {
@@ -77,6 +83,9 @@ void init_sei(SEIParameters *p_SEI)
   p_SEI->seiHasSubseqInfo = FALSE;
   p_SEI->seiHasSubseqLayerInfo = FALSE;
   p_SEI->seiHasPanScanRectInfo = FALSE;
+#if JVET_AE0101_PHASE_INDICATION_SEI_MESSAGE
+  p_SEI->seiHasPhaseIndication_info = FALSE;
+#endif
 }
 
 /*
@@ -127,6 +136,10 @@ void InitSEIMessages(VideoParameters *p_Vid, InputParameters *p_Inp)
   InitDRPMRepetition(p_SEI);
   // init Frame Packing Arrangement
   InitFramePackingArrangement(p_Vid);
+#if JVET_AE0101_PHASE_INDICATION_SEI_MESSAGE
+  // init Phase Indication
+  InitPhaseIndication(p_SEI);
+#endif
 }
 
 void CloseSEIMessages(VideoParameters *p_Vid, InputParameters *p_Inp)
@@ -150,6 +163,9 @@ void CloseSEIMessages(VideoParameters *p_Vid, InputParameters *p_Inp)
   ClosePicTiming(p_SEI);
   CloseDRPMRepetition(p_SEI);
   CloseFramePackingArrangement(p_SEI);
+#if JVET_AE0101_PHASE_INDICATION_SEI_MESSAGE
+  ClosePhaseIndication(p_SEI);
+#endif
 
   for (i=0; i<MAX_LAYER_NUMBER; i++)
   {
@@ -190,6 +206,10 @@ Boolean HaveAggregationSEI(VideoParameters *p_Vid)
     return TRUE;
   if (p_SEI->seiHasDRPMRepetition_info)
     return TRUE;
+#if JVET_AE0101_PHASE_INDICATION_SEI_MESSAGE
+  if (p_SEI->seiHasPhaseIndication_info)
+    return TRUE;
+#endif
 
   return FALSE;
 //  return p_Inp->SparePictureOption && ( seiHasSpare_picture || seiHasSubseq_information ||
@@ -2900,6 +2920,86 @@ static void CloseDRPMRepetition(SEIParameters *p_SEI)
   }
 }
 
+#if JVET_AE0101_PHASE_INDICATION_SEI_MESSAGE
+/*
+ ************************************************************************
+ *  \functions on phase indication SEI message
+ *  \brief
+ *      Based on JVET-AE0101
+ *  \author
+ *      Tomohiro Ikai <ikai.tomohiro@sharp.co.jp>
+ ************************************************************************
+ */
+static void InitPhaseIndication(SEIParameters *p_SEI)
+{
+  p_SEI->seiPhaseIndicationFullResolution.data = malloc( sizeof(Bitstream) );
+  if( p_SEI->seiPhaseIndicationFullResolution.data == NULL ) no_mem_exit("InitPhaseIndicationFullResolution: p_SEI->seiPhaseIndicationFullResolution.data");
+  p_SEI->seiPhaseIndicationFullResolution.data->streamBuffer = malloc(MAXRTPPAYLOADLEN);
+  if( p_SEI->seiPhaseIndicationFullResolution.data->streamBuffer == NULL ) no_mem_exit("InitPhaseIndicationFullResolution: p_SEI->seiPhaseIndicationFullResolution.data->streamBuffer");
+  ClearPhaseIndication(p_SEI);
+}
+
+static void ClearPhaseIndication(SEIParameters *p_SEI)
+{
+  memset( p_SEI->seiPhaseIndicationFullResolution.data->streamBuffer, 0, MAXRTPPAYLOADLEN);
+  p_SEI->seiPhaseIndicationFullResolution.data->bits_to_go  = 8;
+  p_SEI->seiPhaseIndicationFullResolution.data->byte_pos    = 0;
+  p_SEI->seiPhaseIndicationFullResolution.data->byte_buf    = 0;
+  p_SEI->seiPhaseIndicationFullResolution.payloadSize       = 0;
+
+  p_SEI->seiPhaseIndicationFullResolution.pi_hor_phase_num        = 0;
+  p_SEI->seiPhaseIndicationFullResolution.pi_hor_phase_den_minus1 = 0;
+  p_SEI->seiPhaseIndicationFullResolution.pi_ver_phase_num        = 0;
+  p_SEI->seiPhaseIndicationFullResolution.pi_ver_phase_den_minus1 = 0;
+
+  p_SEI->seiHasPhaseIndication_info = FALSE;
+}
+
+void UpdatePhaseIndication(SEIParameters *p_SEI)
+{
+  p_SEI->seiPhaseIndicationFullResolution.pi_hor_phase_num        = 0;
+  p_SEI->seiPhaseIndicationFullResolution.pi_hor_phase_den_minus1 = 0;
+  p_SEI->seiPhaseIndicationFullResolution.pi_ver_phase_num        = 0;
+  p_SEI->seiPhaseIndicationFullResolution.pi_ver_phase_den_minus1 = 0;
+
+  p_SEI->seiHasPhaseIndication_info = TRUE;
+}
+
+static void FinalizePhaseIndication(SEIParameters *p_SEI)
+{
+  Bitstream *bitstream = p_SEI->seiPhaseIndicationFullResolution.data;
+
+  write_u_v(8, "SEI: pi_hor_phase_num", p_SEI->seiPhaseIndicationFullResolution.pi_hor_phase_num, bitstream);
+  write_u_v(8, "SEI: pi_hor_phase_den_minus1", p_SEI->seiPhaseIndicationFullResolution.pi_hor_phase_den_minus1, bitstream);
+  write_u_v(8, "SEI: pi_ver_phase_num", p_SEI->seiPhaseIndicationFullResolution.pi_ver_phase_num, bitstream);
+  write_u_v(8, "SEI: pi_ver_phase_den_minus1", p_SEI->seiPhaseIndicationFullResolution.pi_ver_phase_den_minus1, bitstream);
+
+  // make sure the payload is byte aligned, stuff bits are 10..0
+  if ( bitstream->bits_to_go != 8 )
+  {
+    (bitstream->byte_buf) <<= 1;
+    bitstream->byte_buf |= 1;
+    bitstream->bits_to_go--;
+    if ( bitstream->bits_to_go != 0 ) 
+      (bitstream->byte_buf) <<= (bitstream->bits_to_go);
+    bitstream->bits_to_go = 8;
+    bitstream->streamBuffer[bitstream->byte_pos++]=bitstream->byte_buf;
+    bitstream->byte_buf = 0;
+  }
+  p_SEI->seiPhaseIndicationFullResolution.payloadSize = bitstream->byte_pos;
+}
+
+static void ClosePhaseIndication(SEIParameters *p_SEI)
+{
+  if (p_SEI->seiPhaseIndicationFullResolution.data)
+  {
+    free(p_SEI->seiPhaseIndicationFullResolution.data->streamBuffer);
+    free(p_SEI->seiPhaseIndicationFullResolution.data);
+  }
+  p_SEI->seiPhaseIndicationFullResolution.data = NULL;
+}
+#endif
+
 /*!
  *****************************************************************************
  * \brief
@@ -3036,6 +3136,15 @@ void PrepareAggregationSEIMessage(VideoParameters *p_Vid)
     write_sei_message(p_SEI, AGGREGATION_SEI, p_SEI->seiFramePackingArrangement.data->streamBuffer, p_SEI->seiFramePackingArrangement.payloadSize, SEI_FRAME_PACKING_ARRANGEMENT);
     has_aggregation_sei_message = TRUE;
   }
+
+#if JVET_AE0101_PHASE_INDICATION_SEI_MESSAGE
+  if (p_SEI->seiHasPhaseIndication_info)
+  {
+    FinalizePhaseIndication(p_SEI);
+    write_sei_message(p_SEI, AGGREGATION_SEI, p_SEI->seiPhaseIndicationFullResolution.data->streamBuffer, p_SEI->seiPhaseIndicationFullResolution.payloadSize, SEI_PHASE_INDICATION);
+    has_aggregation_sei_message = TRUE;
+  }
+#endif
 
   // after all the sei payload is written
   if (has_aggregation_sei_message)
