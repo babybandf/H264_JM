@@ -56,6 +56,7 @@
 // #define PRINT_POST_FILTER_HINT_INFO                // uncomment to print post-filter hint SEI info
 // #define PRINT_FRAME_PACKING_ARRANGEMENT_INFO       // uncomment to print frame packing arrangement SEI info
 // #define PRINT_GREEN_METADATA_INFO      // uncomment to print Green Metadata SEI info
+// #define PRINT_PHASE_INDICATION_INFO                // uncomment to print phase indication SEI info
 
 /*!
  ************************************************************************
@@ -177,6 +178,11 @@ void InterpretSEIMessage(byte* msg, int size, VideoParameters *p_Vid, Slice *pSl
     case  SEI_GREEN_METADATA:
       interpret_green_metadata_info( msg+offset, payload_size, p_Vid );
       break;
+#if JVET_AE0101_PHASE_INDICATION_SEI_MESSAGE
+    case  SEI_PHASE_INDICATION:
+      interpret_phase_indication_info( msg+offset, payload_size, p_Vid );
+      break;
+#endif
     default:
       interpret_reserved_info( msg+offset, payload_size, p_Vid );
       break;    
@@ -2317,3 +2323,34 @@ void interpret_green_metadata_info(byte* payload, int size, VideoParameters *p_V
 
   free (buf);
 }
+
+#if JVET_AE0101_PHASE_INDICATION_SEI_MESSAGE
+void interpret_phase_indication_info( byte* payload, int size, VideoParameters *p_Vid )
+{
+  Bitstream* buf;
+  unsigned int pi_hor_phase_num, pi_hor_phase_den_minus1, pi_ver_phase_num, pi_ver_phase_den_minus1;
+
+  buf = malloc(sizeof(Bitstream));
+  buf->bitstream_length = size;
+  buf->streamBuffer = payload;
+  buf->frame_bitoffset = 0;
+
+  p_Dec->UsedBits = 0;
+
+  pi_hor_phase_num        = read_u_v(8, "SEI: pi_hor_phase_num", buf, &p_Dec->UsedBits);
+  pi_hor_phase_den_minus1 = read_u_v(8, "SEI: pi_hor_phase_den_minus1", buf, &p_Dec->UsedBits);
+  pi_ver_phase_num        = read_u_v(8, "SEI: pi_ver_phase_num", buf, &p_Dec->UsedBits);
+  pi_ver_phase_den_minus1 = read_u_v(8, "SEI: pi_ver_phase_den_minus1", buf, &p_Dec->UsedBits);
+
+#ifdef PRINT_PHASE_INDICATION_INFO
+  printf(" Phase indication SEI message\n");
+  printf(" pi_hor_phase_num %d \n", pi_hor_phase_num);
+  printf(" pi_hor_phase_den_minus1 %d \n", pi_hor_phase_den_minus1);
+  printf(" pi_ver_phase_num %d \n", pi_ver_phase_num);
+  printf(" pi_ver_phase_den_minus1 %d \n", pi_ver_phase_den_minus1);
+#undef PRINT_PHASE_INDICATION_INFO
+#endif
+
+  free( buf );
+}
+#endif

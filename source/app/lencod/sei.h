@@ -32,7 +32,7 @@
 
 #define NORMAL_SEI 0
 #define AGGREGATION_SEI 1
-
+#define JVET_AE0101_PHASE_INDICATION_SEI_MESSAGE 1
 
 //! definition of SEI payload type
 typedef enum {
@@ -82,6 +82,9 @@ typedef enum {
   SEI_OPERATION_POINTS_NOT_PRESENT,
   SEI_BASE_VIEW_TEMPORAL_HRD,
   SEI_FRAME_PACKING_ARRANGEMENT,
+#if JVET_AE0101_PHASE_INDICATION_SEI_MESSAGE
+  SEI_PHASE_INDICATION = 212,
+#endif
 
   SEI_MAX_ELEMENTS  //!< number of maximum syntax elements
 } SEI_type;
@@ -319,6 +322,20 @@ typedef struct
   int payloadSize;
 } ToneMappingSEI;
 
+#if JVET_AE0101_PHASE_INDICATION_SEI_MESSAGE
+//! Phase Indication Information
+typedef struct
+{
+  int pi_hor_phase_num;
+  int pi_hor_phase_den_minus1;
+  int pi_ver_phase_num;
+  int pi_ver_phase_den_minus1;
+
+  Bitstream *data;
+  int payloadSize;
+} phase_indication_information_struct;
+#endif
+
 // Globals
 struct sei_params {
   Boolean seiHasDRPMRepetition_info;
@@ -357,6 +374,10 @@ struct sei_params {
   ToneMappingSEI seiToneMapping;
   Boolean seiHasPostFilterHints_info;
   post_filter_information_struct seiPostFilterHints;
+#if JVET_AE0101_PHASE_INDICATION_SEI_MESSAGE
+  Boolean seiHasPhaseIndication_info;
+  phase_indication_information_struct seiPhaseIndicationFullResolution;
+#endif
 
   Boolean seiHasTemporal_reference;
   Boolean seiHasClock_timestamp;
@@ -427,6 +448,10 @@ extern void ComposeSparePictureMessage (SEIParameters *p_SEI, int delta_spare_fr
 
 extern void ClearFramePackingArrangement(SEIParameters *p_SEI);
 extern void UpdateFramePackingArrangement(VideoParameters *p_Vid, InputParameters *p_Inp);
+
+#if JVET_AE0101_PHASE_INDICATION_SEI_MESSAGE
+extern void UpdatePhaseIndication(SEIParameters *p_SEI);
+#endif
 
 // end of temp additions
 
