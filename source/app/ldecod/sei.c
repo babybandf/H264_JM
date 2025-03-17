@@ -2347,19 +2347,20 @@ void interpret_ai_usage_restriction_info(byte* payload, int size, VideoParameter
     aur_context_present_flag = calloc(aur_numRestrictionsMinus1+1, sizeof(int));
     aur_context = calloc(aur_numRestrictionsMinus1+1, sizeof(int));
 
-      for (i = 0; i <= aur_numRestrictionsMinus1; i++)
+    for (i = 0; i <= aur_numRestrictionsMinus1; i++)
+    {
+      aur_restriction[i] = read_ue_v("SEI: aur_restriction", buf, &p_Dec->UsedBits);
+      aur_context_present_flag[i] = read_u_1("SEI: aur_context_present_flag", buf, &p_Dec->UsedBits);
+      if(aur_context_present_flag[i])
       {
-        aur_restriction[i] = read_ue_v("SEI: aur_restriction", buf, &p_Dec->UsedBits);
-        aur_context_present_flag[i] = read_u_1("SEI: aur_context_present_flag", buf, &p_Dec->UsedBits);
-        if(aur_context_present_flag[i])
-        {
-          aur_context[i] = read_ue_v("SEI: aur_context", buf, &p_Dec->UsedBits);
-        }
+        aur_context[i] = read_ue_v("SEI: aur_context", buf, &p_Dec->UsedBits);
       }
+    }
+    free(aur_restriction);
+    free(aur_context_present_flag);
+    free(aur_context);
   }
-  free(aur_restriction);
-  free(aur_context_present_flag);
-  free(aur_context);
+
   free(buf);
 }
 #endif
