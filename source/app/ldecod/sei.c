@@ -177,6 +177,11 @@ void InterpretSEIMessage(byte* msg, int size, VideoParameters *p_Vid, Slice *pSl
     case  SEI_GREEN_METADATA:
       interpret_green_metadata_info( msg+offset, payload_size, p_Vid );
       break;
+#if JVET_AL0061_EOI_SEI
+    case  SEI_ENCODER_OPTIMIZATION_INFO:
+      interpret_encoder_optimization_info(msg + offset, payload_size, p_Vid);
+      break;
+#endif
     default:
       interpret_reserved_info( msg+offset, payload_size, p_Vid );
       break;    
@@ -2317,3 +2322,85 @@ void interpret_green_metadata_info(byte* payload, int size, VideoParameters *p_V
 
   free (buf);
 }
+#if JVET_AL0061_EOI_SEI
+void interpret_encoder_optimization_info(byte* payload, int size, VideoParameters *p_Vid)
+{
+  Bitstream* buf;
+  
+  Boolean     cancelFlag;
+  Boolean     persistenceFlag;
+  int forHumanViewingIdc;
+  int forMachineAnalysisIdc;
+  int reserved_zero_2bits;
+  int type;
+  int objectBasedIdc;
+  int quantThresholdDelta;
+  Boolean     picQuantObjectFlag;
+  Boolean     temporalResamplingTypeFlag;
+  Boolean     srcPicFlag;
+  int numIntPics;
+  Boolean     origPicDimensionsFlag;
+  int origPicWidth;
+  int origPicHeight;
+  Boolean     spatialResamplingTypeFlag;
+  int privacyProtectionTypeIdc;
+  int privacyProtectedInfoType;
+
+  buf = malloc(sizeof(Bitstream));
+  buf->bitstream_length = size;
+  buf->streamBuffer = payload;
+  buf->frame_bitoffset = 0;
+  p_Dec->UsedBits = 0;
+  
+  cancelFlag = read_u_1("SEI: eoi_cancel_flag", buf, &p_Dec->UsedBits);
+  if (!cancelFlag)
+  {
+    persistenceFlag = read_u_1("SEI: eoi_persistence_flag", buf, &p_Dec->UsedBits);
+    forHumanViewingIdc = read_u_v(2, "SEI: eoi_for_human_viewing_idc", buf, &p_Dec->UsedBits);
+    forMachineAnalysisIdc = read_u_v(2, "SEI: eoi_for_machine_analysis_idc", buf, &p_Dec->UsedBits);
+    reserved_zero_2bits = read_u_v(2, "SEI: eoi_reserved_zero_2bits", buf, &p_Dec->UsedBits);
+    type = read_u_v(16, "SEI: eoi_type", buf, &p_Dec->UsedBits);
+    if ((type & OBJECT_BASED_OPTIMIZATION) != 0)
+    {
+      objectBasedIdc = read_u_v(16, "SEI: eoi_object_based_idc", buf, &p_Dec->UsedBits);
+      if (objectBasedIdc & COARSER_QUANTIZATION)
+      {
+        quantThresholdDelta = read_ue_v("SEI: eoi_quant_threshold_delta", buf, &p_Dec->UsedBits);
+        if (quantThresholdDelta > 0)
+        {
+          picQuantObjectFlag = read_u_1("SEI: eoi_pic_quant_object_flag", buf, &p_Dec->UsedBits);
+        }
+      }
+    }
+    if ((type & TEMPORAL_RESAMPLING) != 0)
+    {
+      temporalResamplingTypeFlag = read_u_1("SEI: eoi_temporal_resampling_type_flag", buf, &p_Dec->UsedBits);
+      numIntPics = read_ue_v("SEI: eoi_num_int_pics", buf, &p_Dec->UsedBits);
+      
+      if (temporalResamplingTypeFlag && numIntPics > 0)
+      {
+        srcPicFlag = read_u_1("SEI: eoi_src_pic_flag", buf, &p_Dec->UsedBits);
+      }
+    }
+    
+    if ((type & SPATIAL_RESAMPLING) != 0)
+    {
+      origPicDimensionsFlag = read_u_1("SEI: eoi_orig_pic_dimensions_flag", buf, &p_Dec->UsedBits);
+      if (origPicDimensionsFlag)
+      {
+        origPicWidth = read_u_v(16, "SEI: eoi_orig_pic_width", buf, &p_Dec->UsedBits);
+        origPicHeight = read_u_v(16, "SEI: eoi_orig_pic_height", buf, &p_Dec->UsedBits);
+      }
+      else
+      {
+        spatialResamplingTypeFlag = read_u_1("SEI: eoi_spatial_resampling_type_flag", buf, &p_Dec->UsedBits);
+      }
+    }
+    if ((type & PRIVACY_PROTECTION_OPTIMIZATION) != 0)
+    {
+      privacyProtectionTypeIdc = read_u_v(16, "SEI: eoi_privacy_protection_method_idc", buf, &p_Dec->UsedBits);
+      privacyProtectedInfoType = read_u_v(8, "SEI: eoi_privacy_info_type", buf, &p_Dec->UsedBits);
+    }
+  }
+}
+#endif

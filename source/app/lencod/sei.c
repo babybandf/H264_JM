@@ -50,7 +50,12 @@ static void ClearPostFilterHints       (SEIParameters *p_SEI);
 static void ClosePostFilterHints       (SEIParameters *p_SEI);
 static void InitFramePackingArrangement(VideoParameters *p_Vid);
 static void CloseFramePackingArrangement(SEIParameters *p_SEI);
-
+#if JVET_AL0061_EOI_SEI
+static void InitEncoderOptimizationInfo(SEIParameters *p_SEI);
+static void ClearEncoderOptimizationInfo(SEIParameters *p_SEI);
+static void CloseEncoderOptimizationInfo(SEIParameters *p_SEI);
+static void FinalizeEncoderOptimizationInfo(SEIParameters *p_SEI);
+#endif
 void init_sei(SEIParameters *p_SEI)
 {
   p_SEI->seiHasTemporal_reference=FALSE;
@@ -77,6 +82,9 @@ void init_sei(SEIParameters *p_SEI)
   p_SEI->seiHasSubseqInfo = FALSE;
   p_SEI->seiHasSubseqLayerInfo = FALSE;
   p_SEI->seiHasPanScanRectInfo = FALSE;
+#if JVET_AL0061_EOI_SEI
+  p_SEI->seiHasEncoderOptimization_info = FALSE;
+#endif
 }
 
 /*
@@ -127,6 +135,10 @@ void InitSEIMessages(VideoParameters *p_Vid, InputParameters *p_Inp)
   InitDRPMRepetition(p_SEI);
   // init Frame Packing Arrangement
   InitFramePackingArrangement(p_Vid);
+#if JVET_AL0061_EOI_SEI
+  // init Encoder Optimization Information 
+  InitEncoderOptimizationInfo(p_SEI);
+#endif 
 }
 
 void CloseSEIMessages(VideoParameters *p_Vid, InputParameters *p_Inp)
@@ -150,7 +162,9 @@ void CloseSEIMessages(VideoParameters *p_Vid, InputParameters *p_Inp)
   ClosePicTiming(p_SEI);
   CloseDRPMRepetition(p_SEI);
   CloseFramePackingArrangement(p_SEI);
-
+#if JVET_AL0061_EOI_SEI
+  CloseEncoderOptimizationInfo(p_SEI);
+#endif
   for (i=0; i<MAX_LAYER_NUMBER; i++)
   {
     if ( p_SEI->sei_message[i].data ) 
@@ -190,7 +204,10 @@ Boolean HaveAggregationSEI(VideoParameters *p_Vid)
     return TRUE;
   if (p_SEI->seiHasDRPMRepetition_info)
     return TRUE;
-
+#if JVET_AL0061_EOI_SEI
+  if (p_SEI->seiHasEncoderOptimization_info)
+    return TRUE;
+#endif
   return FALSE;
 //  return p_Inp->SparePictureOption && ( seiHasSpare_picture || seiHasSubseq_information ||
 //    seiHasSubseq_layer_characteristics || seiHasSubseq_characteristics );
@@ -2816,7 +2833,191 @@ void ClearDRPMRepetition(SEIParameters *p_SEI)
 
   p_SEI->seiHasDRPMRepetition_info = FALSE;
 }
+#if JVET_AL0061_EOI_SEI
+/*
+ ************************************************************************
+ *  \functions on Encoder Optimization Information SEI message
+ *  \brief
+ *      Based on JVET-ALXXXX
+ *  \author
+ *      ChulKeun Kim <chulkeun.kim@lge.com>
+ ************************************************************************
+ */
+static void InitEncoderOptimizationInfo(SEIParameters *p_SEI)
+{
+  p_SEI->seiEncoderOptimizationInfo.data = malloc(sizeof(Bitstream));
+  if (p_SEI->seiEncoderOptimizationInfo.data == NULL) no_mem_exit("InitAIUsageRestriction:   p_SEI->seiAIUsagreRestriction.data");
+  p_SEI->seiEncoderOptimizationInfo.data->streamBuffer = malloc(MAXRTPPAYLOADLEN);
+  if (p_SEI->seiEncoderOptimizationInfo.data->streamBuffer == NULL) no_mem_exit("InitAIUsageRestriction: p_SEI->seiAIUsagreRestriction.data");
+  ClearEncoderOptimizationInfo(p_SEI);
+}
 
+static void ClearEncoderOptimizationInfo(SEIParameters *p_SEI)
+{
+  memset(p_SEI->seiEncoderOptimizationInfo.data->streamBuffer, 0, MAXRTPPAYLOADLEN);
+  p_SEI->seiEncoderOptimizationInfo.data->bits_to_go = 8;
+  p_SEI->seiEncoderOptimizationInfo.data->byte_pos = 0;
+  p_SEI->seiEncoderOptimizationInfo.data->byte_buf = 0;
+  p_SEI->seiEncoderOptimizationInfo.payloadSize = 0;
+
+  p_SEI->seiEncoderOptimizationInfo.cancelFlag = FALSE;
+  p_SEI->seiEncoderOptimizationInfo.persistenceFlag = FALSE;
+  p_SEI->seiEncoderOptimizationInfo.forHumanViewingIdc = 0;
+  p_SEI->seiEncoderOptimizationInfo.forMachineAnalysisIdc = 0;
+  p_SEI->seiEncoderOptimizationInfo.reserved_zero_2bits = 0;
+  p_SEI->seiEncoderOptimizationInfo.type = 0;
+  p_SEI->seiEncoderOptimizationInfo.objectBasedIdc = 0;
+  p_SEI->seiEncoderOptimizationInfo.quantThresholdDelta = 0;
+  p_SEI->seiEncoderOptimizationInfo.picQuantObjectFlag = FALSE;
+  p_SEI->seiEncoderOptimizationInfo.temporalResamplingTypeFlag = FALSE;
+  p_SEI->seiEncoderOptimizationInfo.srcPicFlag = 0;
+  p_SEI->seiEncoderOptimizationInfo.numIntPics = 0;
+  p_SEI->seiEncoderOptimizationInfo.origPicDimensionsFlag = FALSE;
+  p_SEI->seiEncoderOptimizationInfo.origPicWidth = 0;
+  p_SEI->seiEncoderOptimizationInfo.origPicHeight = 0;
+  p_SEI->seiEncoderOptimizationInfo.spatialResamplingTypeFlag = FALSE;
+  p_SEI->seiEncoderOptimizationInfo.privacyProtectionTypeIdc = 0;
+  p_SEI->seiEncoderOptimizationInfo.privacyProtectedInfoType = 0;
+}
+
+void UpdateEncoderOptimizationInfo(SEIParameters *p_SEI)
+{
+  p_SEI->seiEncoderOptimizationInfo.cancelFlag = FALSE;
+
+  if (!p_SEI->seiEncoderOptimizationInfo.cancelFlag)
+  {
+    p_SEI->seiEncoderOptimizationInfo.persistenceFlag = TRUE;
+    p_SEI->seiEncoderOptimizationInfo.forHumanViewingIdc = 2;
+    p_SEI->seiEncoderOptimizationInfo.forMachineAnalysisIdc = 2;
+    p_SEI->seiEncoderOptimizationInfo.reserved_zero_2bits = 0;
+    p_SEI->seiEncoderOptimizationInfo.type = 39;
+    if ((p_SEI->seiEncoderOptimizationInfo.type & OBJECT_BASED_OPTIMIZATION) != 0)
+    {
+      p_SEI->seiEncoderOptimizationInfo.objectBasedIdc = 2;
+      if (p_SEI->seiEncoderOptimizationInfo.objectBasedIdc & COARSER_QUANTIZATION)
+      {
+        p_SEI->seiEncoderOptimizationInfo.quantThresholdDelta = 1;
+        if (p_SEI->seiEncoderOptimizationInfo.quantThresholdDelta > 0)
+        {
+          p_SEI->seiEncoderOptimizationInfo.picQuantObjectFlag = TRUE;
+        }
+      }
+    }
+    if ((p_SEI->seiEncoderOptimizationInfo.type & TEMPORAL_RESAMPLING) != 0)
+    {
+      p_SEI->seiEncoderOptimizationInfo.temporalResamplingTypeFlag = TRUE;
+      p_SEI->seiEncoderOptimizationInfo.numIntPics = 2;
+
+      if (p_SEI->seiEncoderOptimizationInfo.temporalResamplingTypeFlag &&  p_SEI->seiEncoderOptimizationInfo.numIntPics > 0)
+      {
+        p_SEI->seiEncoderOptimizationInfo.srcPicFlag = TRUE;
+      }
+    }
+
+    if ((p_SEI->seiEncoderOptimizationInfo.type & SPATIAL_RESAMPLING) != 0)
+    {
+      p_SEI->seiEncoderOptimizationInfo.origPicDimensionsFlag = TRUE;
+      if (p_SEI->seiEncoderOptimizationInfo.origPicDimensionsFlag)
+      {
+        p_SEI->seiEncoderOptimizationInfo.origPicWidth = 1920;
+        p_SEI->seiEncoderOptimizationInfo.origPicHeight = 1080;
+      }
+      else
+      {
+        p_SEI->seiEncoderOptimizationInfo.spatialResamplingTypeFlag = TRUE;
+      }
+    }
+    if ((p_SEI->seiEncoderOptimizationInfo.type & PRIVACY_PROTECTION_OPTIMIZATION) != 0)
+    {
+      p_SEI->seiEncoderOptimizationInfo.privacyProtectionTypeIdc = 1;
+      p_SEI->seiEncoderOptimizationInfo.privacyProtectedInfoType = 2;
+    }
+  }
+  p_SEI->seiHasEncoderOptimization_info = TRUE;
+}
+
+static void FinalizeEncoderOptimizationInfo(SEIParameters *p_SEI)
+{
+  Bitstream *bitstream = p_SEI->seiEncoderOptimizationInfo.data;
+  
+  write_u_1("SEI : eoi_cancel_flag", p_SEI->seiEncoderOptimizationInfo.cancelFlag, bitstream);
+  if (!p_SEI->seiEncoderOptimizationInfo.cancelFlag)
+  {
+    write_u_1("SEI: eoi_persistence_flag", p_SEI->seiEncoderOptimizationInfo.persistenceFlag, bitstream);
+    write_u_v(2, "SEI: eoi_for_human_viewing_idc", p_SEI->seiEncoderOptimizationInfo.forHumanViewingIdc, bitstream);
+    write_u_v(2, "SEI: eoi_for_machine_analysis_idc", p_SEI->seiEncoderOptimizationInfo.forMachineAnalysisIdc, bitstream);
+    write_u_v(2, "SEI: eoi_reserved_zero_2bits", p_SEI->seiEncoderOptimizationInfo.reserved_zero_2bits, bitstream);
+    write_u_v(16, "SEI: eoi_type", p_SEI->seiEncoderOptimizationInfo.type, bitstream);
+    
+    if ((p_SEI->seiEncoderOptimizationInfo.type & OBJECT_BASED_OPTIMIZATION) != 0)
+    {
+      
+      write_u_v(16, "SEI: eoi_object_based_idc", p_SEI->seiEncoderOptimizationInfo.objectBasedIdc, bitstream);
+      if (p_SEI->seiEncoderOptimizationInfo.objectBasedIdc & COARSER_QUANTIZATION)
+      {
+        write_ue_v("SEI: eoi_quant_threshold_delta", p_SEI->seiEncoderOptimizationInfo.quantThresholdDelta, bitstream);
+        if (p_SEI->seiEncoderOptimizationInfo.quantThresholdDelta > 0)
+        {
+          write_u_1("SEI: eoi_pic_quant_object_flag", p_SEI->seiEncoderOptimizationInfo.picQuantObjectFlag, bitstream);
+        }
+      }
+    }
+    if ((p_SEI->seiEncoderOptimizationInfo.type & TEMPORAL_RESAMPLING) != 0)
+    {
+      write_u_1("SEI: eoi_temporal_resampling_type_flag", p_SEI->seiEncoderOptimizationInfo.temporalResamplingTypeFlag, bitstream);
+      write_ue_v("SEI: eoi_num_int_pics", p_SEI->seiEncoderOptimizationInfo.numIntPics, bitstream);
+      
+      if (p_SEI->seiEncoderOptimizationInfo.temporalResamplingTypeFlag &&  p_SEI->seiEncoderOptimizationInfo.numIntPics > 0)
+      {
+        write_u_1("SEI: eoi_src_pic_flag", p_SEI->seiEncoderOptimizationInfo.srcPicFlag, bitstream);
+      }
+    }
+
+    if ((p_SEI->seiEncoderOptimizationInfo.type & SPATIAL_RESAMPLING) != 0)
+    {
+      write_u_1("SEI: eoi_orig_pic_dimensions_flag", p_SEI->seiEncoderOptimizationInfo.origPicDimensionsFlag, bitstream);
+      if (p_SEI->seiEncoderOptimizationInfo.origPicDimensionsFlag)
+      {
+        write_u_v(16, "SEI: eoi_orig_pic_width", p_SEI->seiEncoderOptimizationInfo.origPicWidth, bitstream);
+        write_u_v(16, "SEI: eoi_orig_pic_height", p_SEI->seiEncoderOptimizationInfo.origPicHeight, bitstream);
+      }
+      else
+      {
+        write_u_1("SEI: eoi_spatial_resampling_type_flag", p_SEI->seiEncoderOptimizationInfo.spatialResamplingTypeFlag, bitstream);
+      }
+    }
+    if ((p_SEI->seiEncoderOptimizationInfo.type & PRIVACY_PROTECTION_OPTIMIZATION) != 0)
+    {
+      write_u_v(16, "SEI: eoi_privacy_protection_method_idc", p_SEI->seiEncoderOptimizationInfo.privacyProtectionTypeIdc, bitstream);
+      write_u_v(8, "SEI: eoi_privacy_info_type", p_SEI->seiEncoderOptimizationInfo.privacyProtectedInfoType, bitstream);
+     
+    }
+  }
+  // make sure the payload is byte aligned, stuff bits are 10..0
+  if (bitstream->bits_to_go != 8)
+  {
+    (bitstream->byte_buf) <<= 1;
+    bitstream->byte_buf |= 1;
+    bitstream->bits_to_go--;
+    if (bitstream->bits_to_go != 0)
+      (bitstream->byte_buf) <<= (bitstream->bits_to_go);
+    bitstream->bits_to_go = 8;
+    bitstream->streamBuffer[bitstream->byte_pos++] = bitstream->byte_buf;
+    bitstream->byte_buf = 0;
+  }
+  p_SEI->seiEncoderOptimizationInfo.payloadSize = bitstream->byte_pos;
+}
+
+static void CloseEncoderOptimizationInfo(SEIParameters *p_SEI)
+{
+  if (p_SEI->seiEncoderOptimizationInfo.data)
+  {
+    free(p_SEI->seiEncoderOptimizationInfo.data->streamBuffer);
+    free(p_SEI->seiEncoderOptimizationInfo.data);
+  }
+  p_SEI->seiEncoderOptimizationInfo.data = NULL;
+}
+#endif
 /*
  ************************************************************************
  * \brief
@@ -3036,7 +3237,14 @@ void PrepareAggregationSEIMessage(VideoParameters *p_Vid)
     write_sei_message(p_SEI, AGGREGATION_SEI, p_SEI->seiFramePackingArrangement.data->streamBuffer, p_SEI->seiFramePackingArrangement.payloadSize, SEI_FRAME_PACKING_ARRANGEMENT);
     has_aggregation_sei_message = TRUE;
   }
-
+#if JVET_AL0061_EOI_SEI
+  if (p_SEI->seiHasEncoderOptimization_info)
+  {
+    FinalizeEncoderOptimizationInfo(p_SEI);
+    write_sei_message(p_SEI, AGGREGATION_SEI, p_SEI->seiEncoderOptimizationInfo.data->streamBuffer, p_SEI->seiEncoderOptimizationInfo.payloadSize, SEI_ENCODER_OPTIMIZATION_INFO);
+    has_aggregation_sei_message = TRUE;
+  }
+#endif
   // after all the sei payload is written
   if (has_aggregation_sei_message)
   {

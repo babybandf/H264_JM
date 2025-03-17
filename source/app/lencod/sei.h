@@ -32,7 +32,38 @@
 
 #define NORMAL_SEI 0
 #define AGGREGATION_SEI 1
+#define JVET_AL0061_EOI_SEI             1
+#if JVET_AL0061_EOI_SEI
 
+typedef enum
+{
+  UNDEFINED = 0,
+  OBJECT_BASED_OPTIMIZATION = 1,
+  TEMPORAL_RESAMPLING = 2,
+  SPATIAL_RESAMPLING = 4,
+  TEMPORAL_QUALITY_OPTIMIZATION = 8,
+  SPATIAL_QUALITY_OPTIMIZATION = 16,
+  PRIVACY_PROTECTION_OPTIMIZATION = 32,
+} EOI_OPTIMIZATION_TYPE;
+
+typedef enum EOI_PRIVACY_PROTECTION
+{
+  BLURRING = 1,
+  REPLACING = 2,
+  MASKING = 4,
+  PIXELATION = 8
+} EOI_PRIVACY_PROTECTION;
+
+typedef enum
+{
+  BLURRED = 1,
+  COARSER_QUANTIZATION = 2,
+  OVERWRITTEN_CONSTANT = 4,
+  OVERWRITTEN_NONCONSTANT = 8,
+  SIZE_BASED = 16
+} EOI_OBJECT_BASED;
+
+#endif 
 
 //! definition of SEI payload type
 typedef enum {
@@ -82,7 +113,9 @@ typedef enum {
   SEI_OPERATION_POINTS_NOT_PRESENT,
   SEI_BASE_VIEW_TEMPORAL_HRD,
   SEI_FRAME_PACKING_ARRANGEMENT,
-
+#if JVET_AL0061_EOI_SEI
+  SEI_ENCODER_OPTIMIZATION_INFO = 215,
+#endif
   SEI_MAX_ELEMENTS  //!< number of maximum syntax elements
 } SEI_type;
 
@@ -318,7 +351,32 @@ typedef struct
   Bitstream *data;
   int payloadSize;
 } ToneMappingSEI;
+#if JVET_AL0061_EOI_SEI
+typedef struct
+{
+  Boolean     cancelFlag;
+  Boolean     persistenceFlag;
+  int forHumanViewingIdc;
+  int forMachineAnalysisIdc;
+  int reserved_zero_2bits;
+  int type;
+  int objectBasedIdc;
+  int quantThresholdDelta;
+  Boolean     picQuantObjectFlag;
+  Boolean     temporalResamplingTypeFlag;
+  Boolean     srcPicFlag;
+  int numIntPics;
+  Boolean     origPicDimensionsFlag;
+  int origPicWidth;
+  int origPicHeight;
+  Boolean     spatialResamplingTypeFlag;
+  int privacyProtectionTypeIdc;
+  int privacyProtectedInfoType;
 
+  Bitstream *data;
+  int payloadSize;
+} encoder_optimization_information_struct;
+#endif
 // Globals
 struct sei_params {
   Boolean seiHasDRPMRepetition_info;
@@ -357,7 +415,10 @@ struct sei_params {
   ToneMappingSEI seiToneMapping;
   Boolean seiHasPostFilterHints_info;
   post_filter_information_struct seiPostFilterHints;
-
+#if JVET_AL0061_EOI_SEI
+  Boolean seiHasEncoderOptimization_info;
+  encoder_optimization_information_struct seiEncoderOptimizationInfo;
+#endif
   Boolean seiHasTemporal_reference;
   Boolean seiHasClock_timestamp;
   Boolean seiHasPanscan_rect;
@@ -427,7 +488,9 @@ extern void ComposeSparePictureMessage (SEIParameters *p_SEI, int delta_spare_fr
 
 extern void ClearFramePackingArrangement(SEIParameters *p_SEI);
 extern void UpdateFramePackingArrangement(VideoParameters *p_Vid, InputParameters *p_Inp);
-
+#if JVET_AL0061_EOI_SEI
+extern void UpdateEncoderOptimizationInfo(SEIParameters *p_SEI);
+#endif
 // end of temp additions
 
 #endif

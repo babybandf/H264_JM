@@ -10,7 +10,38 @@
 
 #ifndef SEI_H
 #define SEI_H
+#define JVET_AL0061_EOI_SEI             1
+#if JVET_AL0061_EOI_SEI
 
+typedef enum 
+{
+  UNDEFINED = 0,
+  OBJECT_BASED_OPTIMIZATION = 1,
+  TEMPORAL_RESAMPLING = 2,
+  SPATIAL_RESAMPLING = 4,
+  TEMPORAL_QUALITY_OPTIMIZATION = 8,
+  SPATIAL_QUALITY_OPTIMIZATION = 16,
+  PRIVACY_PROTECTION_OPTIMIZATION = 32,
+} EOI_OPTIMIZATION_TYPE;
+
+typedef enum EOI_PRIVACY_PROTECTION
+{
+  BLURRING = 1,
+  REPLACING = 2,
+  MASKING = 4,
+  PIXELATION = 8
+} EOI_PRIVACY_PROTECTION;
+
+typedef enum 
+{
+  BLURRED = 1,
+  COARSER_QUANTIZATION = 2,
+  OVERWRITTEN_CONSTANT = 4,
+  OVERWRITTEN_NONCONSTANT = 8,
+  SIZE_BASED = 16
+} EOI_OBJECT_BASED;
+
+#endif 
 typedef enum {
   SEI_BUFFERING_PERIOD = 0,
   SEI_PIC_TIMING,
@@ -59,7 +90,9 @@ typedef enum {
   SEI_BASE_VIEW_TEMPORAL_HRD,
   SEI_FRAME_PACKING_ARRANGEMENT,
   SEI_GREEN_METADATA=56,
-
+#if JVET_AL0061_EOI_SEI
+  SEI_ENCODER_OPTIMIZATION_INFO = 215,
+#endif
   SEI_MAX_ELEMENTS  //!< number of maximum syntax elements
 } SEI_type;
 
@@ -154,7 +187,9 @@ void interpret_post_filter_hints_info                   ( byte* payload, int siz
 void interpret_tone_mapping                             ( byte* payload, int size, VideoParameters *p_Vid );
 void interpret_frame_packing_arrangement_info           ( byte* payload, int size, VideoParameters *p_Vid );
 void interpret_green_metadata_info                       (byte* payload, int size, VideoParameters *p_Vid );
-
+#if JVET_AL0061_EOI_SEI
+void interpret_encoder_optimization_info(byte* payload, int size, VideoParameters *p_Vid);
+#endif
 #if (ENABLE_OUTPUT_TONEMAPPING)
 void tone_map               (imgpel** imgX, imgpel* lut, int size_x, int size_y);
 void init_tone_mapping_sei  (ToneMappingSEI *seiToneMapping);
