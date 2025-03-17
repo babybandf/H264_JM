@@ -177,6 +177,11 @@ void InterpretSEIMessage(byte* msg, int size, VideoParameters *p_Vid, Slice *pSl
     case  SEI_GREEN_METADATA:
       interpret_green_metadata_info( msg+offset, payload_size, p_Vid );
       break;
+#if JVET_AL0062_AI_USAGE_RESTRICTIONS_SEI
+    case  SEI_AI_USAGE_RESTRICTIONS:
+      interpret_ai_usage_restriction_info(msg + offset, payload_size, p_Vid);
+      break;
+#endif
     default:
       interpret_reserved_info( msg+offset, payload_size, p_Vid );
       break;    
@@ -2317,3 +2322,45 @@ void interpret_green_metadata_info(byte* payload, int size, VideoParameters *p_V
 
   free (buf);
 }
+#if JVET_AL0062_AI_USAGE_RESTRICTIONS_SEI
+void interpret_ai_usage_restriction_info(byte* payload, int size, VideoParameters *p_Vid)
+{
+  Bitstream* buf;
+  int i;
+  int aur_cancelFlag, aur_persistenceFlag, aur_numRestrictionsMinus1;
+  int * aur_restriction;
+  int * aur_context_present_flag;
+  int * aur_context;
+  buf = malloc(sizeof(Bitstream));
+  buf->bitstream_length = size;
+  buf->streamBuffer = payload;
+  buf->frame_bitoffset = 0;
+
+  p_Dec->UsedBits = 0;
+
+  aur_cancelFlag = read_u_1("SEI: aur_cancel_flag", buf, &p_Dec->UsedBits);
+  if(!aur_cancelFlag)
+  {
+    aur_persistenceFlag = read_u_1("SEI: aur_persistence_flag", buf, &p_Dec->UsedBits);
+    aur_numRestrictionsMinus1 = read_ue_v("SEI: aur_num_restrictions_minus1", buf, &p_Dec->UsedBits);
+    aur_restriction = calloc(aur_numRestrictionsMinus1+1, sizeof(int));
+    aur_context_present_flag = calloc(aur_numRestrictionsMinus1+1, sizeof(int));
+    aur_context = calloc(aur_numRestrictionsMinus1+1, sizeof(int));
+
+    for (i = 0; i <= aur_numRestrictionsMinus1; i++)
+    {
+      aur_restriction[i] = read_ue_v("SEI: aur_restriction", buf, &p_Dec->UsedBits);
+      aur_context_present_flag[i] = read_u_1("SEI: aur_context_present_flag", buf, &p_Dec->UsedBits);
+      if(aur_context_present_flag[i])
+      {
+        aur_context[i] = read_ue_v("SEI: aur_context", buf, &p_Dec->UsedBits);
+      }
+    }
+    free(aur_restriction);
+    free(aur_context_present_flag);
+    free(aur_context);
+  }
+
+  free(buf);
+}
+#endif
