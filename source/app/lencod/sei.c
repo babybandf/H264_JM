@@ -50,7 +50,12 @@ static void ClearPostFilterHints       (SEIParameters *p_SEI);
 static void ClosePostFilterHints       (SEIParameters *p_SEI);
 static void InitFramePackingArrangement(VideoParameters *p_Vid);
 static void CloseFramePackingArrangement(SEIParameters *p_SEI);
-
+#if JVET_AL0062_AI_USAGE_RESTRICTIONS_SEI
+static void InitAIUsageRestriction(SEIParameters *p_SEI);
+static void ClearAIUsageRestriction(SEIParameters *p_SEI);
+static void CloseAIUsageRestriction(SEIParameters *p_SEI);
+static void FinalizeAIUsageRestriction(SEIParameters *p_SEI);
+#endif
 void init_sei(SEIParameters *p_SEI)
 {
   p_SEI->seiHasTemporal_reference=FALSE;
@@ -77,6 +82,9 @@ void init_sei(SEIParameters *p_SEI)
   p_SEI->seiHasSubseqInfo = FALSE;
   p_SEI->seiHasSubseqLayerInfo = FALSE;
   p_SEI->seiHasPanScanRectInfo = FALSE;
+#if JVET_AL0062_AI_USAGE_RESTRICTIONS_SEI
+  p_SEI->seiHasAIUsageRestriction_info = FALSE;
+#endif
 }
 
 /*
@@ -127,6 +135,10 @@ void InitSEIMessages(VideoParameters *p_Vid, InputParameters *p_Inp)
   InitDRPMRepetition(p_SEI);
   // init Frame Packing Arrangement
   InitFramePackingArrangement(p_Vid);
+#if JVET_AL0062_AI_USAGE_RESTRICTIONS_SEI
+  // init AI Usage Restriction
+  InitAIUsageRestriction(p_SEI);
+#endif 
 }
 
 void CloseSEIMessages(VideoParameters *p_Vid, InputParameters *p_Inp)
@@ -150,6 +162,9 @@ void CloseSEIMessages(VideoParameters *p_Vid, InputParameters *p_Inp)
   ClosePicTiming(p_SEI);
   CloseDRPMRepetition(p_SEI);
   CloseFramePackingArrangement(p_SEI);
+#if JVET_AL0062_AI_USAGE_RESTRICTIONS_SEI
+  CloseAIUsageRestriction(p_SEI);
+#endif
 
   for (i=0; i<MAX_LAYER_NUMBER; i++)
   {
@@ -190,7 +205,10 @@ Boolean HaveAggregationSEI(VideoParameters *p_Vid)
     return TRUE;
   if (p_SEI->seiHasDRPMRepetition_info)
     return TRUE;
-
+#if JVET_AL0062_AI_USAGE_RESTRICTIONS_SEI
+  if (p_SEI->seiHasAIUsageRestriction_info)
+    return TRUE;
+#endif
   return FALSE;
 //  return p_Inp->SparePictureOption && ( seiHasSpare_picture || seiHasSubseq_information ||
 //    seiHasSubseq_layer_characteristics || seiHasSubseq_characteristics );
@@ -2900,6 +2918,120 @@ static void CloseDRPMRepetition(SEIParameters *p_SEI)
   }
 }
 
+#if JVET_AL0062_AI_USAGE_RESTRICTIONS_SEI
+/*
+ ************************************************************************
+ *  \functions on AI Usage Restriction SEI message
+ *  \brief
+ *      Based on JVET-AK0114
+ *  \author
+ *      ChulKeun Kim <chulkeun.kim@lge.com>
+ ************************************************************************
+ */
+static void InitAIUsageRestriction(SEIParameters *p_SEI)
+{
+  p_SEI->seiAIUsagreRestriction.data  = malloc(sizeof(Bitstream));
+  if (p_SEI->seiAIUsagreRestriction.data == NULL) no_mem_exit("InitAIUsageRestriction:   p_SEI->seiAIUsagreRestriction.data");
+  p_SEI->seiAIUsagreRestriction.data->streamBuffer = malloc(MAXRTPPAYLOADLEN);
+  if (p_SEI->seiAIUsagreRestriction.data->streamBuffer == NULL) no_mem_exit("InitAIUsageRestriction: p_SEI->seiAIUsagreRestriction.data");
+  ClearAIUsageRestriction(p_SEI);
+}
+
+static void ClearAIUsageRestriction(SEIParameters *p_SEI)
+{
+  memset(p_SEI->seiAIUsagreRestriction.data->streamBuffer, 0, MAXRTPPAYLOADLEN);
+  p_SEI->seiAIUsagreRestriction.data->bits_to_go = 8;
+  p_SEI->seiAIUsagreRestriction.data->byte_pos = 0;
+  p_SEI->seiAIUsagreRestriction.data->byte_buf = 0;
+  p_SEI->seiAIUsagreRestriction.payloadSize = 0;
+
+  p_SEI->seiAIUsagreRestriction.aur_cancelFlag = FALSE;
+  p_SEI->seiAIUsagreRestriction.aur_persistenceFlag = FALSE;
+  p_SEI->seiAIUsagreRestriction.aur_numRestrictionsMinus1 = 0;
+  p_SEI->seiHasAIUsageRestriction_info = FALSE;
+
+  
+}
+
+void UpdateAIUsageRestriction(SEIParameters *p_SEI)
+{
+  int i;
+  p_SEI->seiAIUsagreRestriction.aur_cancelFlag = FALSE;
+  p_SEI->seiAIUsagreRestriction.aur_persistenceFlag = TRUE;
+  p_SEI->seiAIUsagreRestriction.aur_numRestrictionsMinus1 = 1;
+  p_SEI->seiAIUsagreRestriction.aur_restriction = calloc(p_SEI->seiAIUsagreRestriction.aur_numRestrictionsMinus1 + 1, sizeof(int));
+  p_SEI->seiAIUsagreRestriction.aur_context_present_flag = calloc(p_SEI->seiAIUsagreRestriction.aur_numRestrictionsMinus1 + 1, sizeof(int));
+  p_SEI->seiAIUsagreRestriction.aur_context = calloc(p_SEI->seiAIUsagreRestriction.aur_numRestrictionsMinus1 + 1, sizeof(int));
+  for (i = 0; i <= p_SEI->seiAIUsagreRestriction.aur_numRestrictionsMinus1; i++)
+  {
+    p_SEI->seiAIUsagreRestriction.aur_restriction[i] = 1; 
+    p_SEI->seiAIUsagreRestriction.aur_context_present_flag[i] = TRUE;
+    if(p_SEI->seiAIUsagreRestriction.aur_context_present_flag[i])
+    {
+      p_SEI->seiAIUsagreRestriction.aur_context[i] = 1;
+    }
+
+  }
+  p_SEI->seiHasAIUsageRestriction_info  = TRUE;
+}
+
+static void FinalizeAIUsageRestriction(SEIParameters *p_SEI)
+{
+  Bitstream *bitstream = p_SEI->seiAIUsagreRestriction.data;
+  int i;
+  write_u_1("SEI : aur_cancel_flag", p_SEI->seiAIUsagreRestriction.aur_cancelFlag, bitstream);
+  if (!p_SEI->seiAIUsagreRestriction.aur_cancelFlag)
+  {
+    write_u_1("SEI: aur_persistence_flag", p_SEI->seiAIUsagreRestriction.aur_persistenceFlag, bitstream);
+    write_ue_v("SEI: aur_num_restrictions_minus1", p_SEI->seiAIUsagreRestriction.aur_numRestrictionsMinus1, bitstream);
+    for (i = 0; i <= p_SEI->seiAIUsagreRestriction.aur_numRestrictionsMinus1; i++)
+    {
+      write_ue_v("SEI: aur_restriction", p_SEI->seiAIUsagreRestriction.aur_restriction[i], bitstream);
+      write_u_1("SEI: aur_context_present_flag", p_SEI->seiAIUsagreRestriction.aur_context_present_flag[i], bitstream);
+      if (p_SEI->seiAIUsagreRestriction.aur_context_present_flag[i])
+      {
+        write_ue_v("SEI: aur_context", p_SEI->seiAIUsagreRestriction.aur_context[i], bitstream);
+      }
+    }
+  }
+
+  // make sure the payload is byte aligned, stuff bits are 10..0
+  if (bitstream->bits_to_go != 8)
+  {
+    (bitstream->byte_buf) <<= 1;
+    bitstream->byte_buf |= 1;
+    bitstream->bits_to_go--;
+    if (bitstream->bits_to_go != 0)
+      (bitstream->byte_buf) <<= (bitstream->bits_to_go);
+    bitstream->bits_to_go = 8;
+    bitstream->streamBuffer[bitstream->byte_pos++] = bitstream->byte_buf;
+    bitstream->byte_buf = 0;
+  }
+  p_SEI->seiAIUsagreRestriction.payloadSize = bitstream->byte_pos;
+}
+
+static void CloseAIUsageRestriction(SEIParameters *p_SEI)
+{
+  if (p_SEI->seiAIUsagreRestriction.data)
+  {
+    free(p_SEI->seiAIUsagreRestriction.data->streamBuffer);
+    free(p_SEI->seiAIUsagreRestriction.data);
+    if(p_SEI->seiAIUsagreRestriction.aur_restriction)
+    {
+      free(p_SEI->seiAIUsagreRestriction.aur_restriction);
+    }
+    if (p_SEI->seiAIUsagreRestriction.aur_context_present_flag)
+    {
+      free(p_SEI->seiAIUsagreRestriction.aur_context_present_flag);
+    }
+    if (p_SEI->seiAIUsagreRestriction.aur_context)
+    {
+      free(p_SEI->seiAIUsagreRestriction.aur_context);
+     }
+  }
+  p_SEI->seiAIUsagreRestriction.data = NULL;
+}
+#endif
 /*!
  *****************************************************************************
  * \brief
@@ -3036,7 +3168,14 @@ void PrepareAggregationSEIMessage(VideoParameters *p_Vid)
     write_sei_message(p_SEI, AGGREGATION_SEI, p_SEI->seiFramePackingArrangement.data->streamBuffer, p_SEI->seiFramePackingArrangement.payloadSize, SEI_FRAME_PACKING_ARRANGEMENT);
     has_aggregation_sei_message = TRUE;
   }
-
+#if JVET_AL0062_AI_USAGE_RESTRICTIONS_SEI
+  if (p_SEI->seiHasAIUsageRestriction_info)
+  {
+    FinalizeAIUsageRestriction(p_SEI);
+    write_sei_message(p_SEI, AGGREGATION_SEI, p_SEI->seiAIUsagreRestriction.data->streamBuffer, p_SEI->seiAIUsagreRestriction.payloadSize, SEI_AI_USAGE_RESTRICTIONS);
+    has_aggregation_sei_message = TRUE;
+  }
+#endif
   // after all the sei payload is written
   if (has_aggregation_sei_message)
   {
@@ -3065,4 +3204,5 @@ void free_drpm_buffer( DecRefPicMarking_t *pDRPM )
   }
   free( pTmp );
 }
+
 

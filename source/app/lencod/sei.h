@@ -33,7 +33,7 @@
 #define NORMAL_SEI 0
 #define AGGREGATION_SEI 1
 
-
+#define JVET_AL0062_AI_USAGE_RESTRICTIONS_SEI 1
 //! definition of SEI payload type
 typedef enum {
   SEI_BUFFERING_PERIOD = 0,
@@ -82,7 +82,9 @@ typedef enum {
   SEI_OPERATION_POINTS_NOT_PRESENT,
   SEI_BASE_VIEW_TEMPORAL_HRD,
   SEI_FRAME_PACKING_ARRANGEMENT,
-
+#if JVET_AL0062_AI_USAGE_RESTRICTIONS_SEI
+  SEI_AI_USAGE_RESTRICTIONS = 225,   // payload_type value TBD
+#endif
   SEI_MAX_ELEMENTS  //!< number of maximum syntax elements
 } SEI_type;
 
@@ -318,6 +320,20 @@ typedef struct
   Bitstream *data;
   int payloadSize;
 } ToneMappingSEI;
+#if JVET_AL0062_AI_USAGE_RESTRICTIONS_SEI
+typedef struct
+{
+  int aur_cancelFlag;
+  int aur_persistenceFlag;
+  int aur_numRestrictionsMinus1;
+  int * aur_restriction;
+  int * aur_context_present_flag;
+  int * aur_context;
+  
+  Bitstream *data;
+  int payloadSize;
+} ai_usage_restriction_information_struct;
+#endif
 
 // Globals
 struct sei_params {
@@ -357,7 +373,10 @@ struct sei_params {
   ToneMappingSEI seiToneMapping;
   Boolean seiHasPostFilterHints_info;
   post_filter_information_struct seiPostFilterHints;
-
+#if JVET_AL0062_AI_USAGE_RESTRICTIONS_SEI
+  Boolean seiHasAIUsageRestriction_info;
+  ai_usage_restriction_information_struct seiAIUsagreRestriction;
+#endif
   Boolean seiHasTemporal_reference;
   Boolean seiHasClock_timestamp;
   Boolean seiHasPanscan_rect;
@@ -427,7 +446,9 @@ extern void ComposeSparePictureMessage (SEIParameters *p_SEI, int delta_spare_fr
 
 extern void ClearFramePackingArrangement(SEIParameters *p_SEI);
 extern void UpdateFramePackingArrangement(VideoParameters *p_Vid, InputParameters *p_Inp);
-
+#if JVET_AL0062_AI_USAGE_RESTRICTIONS_SEI
+extern void UpdateAIUsageRestriction(SEIParameters *p_SEI);
+#endif
 // end of temp additions
 
 #endif
