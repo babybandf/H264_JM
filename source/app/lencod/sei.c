@@ -50,6 +50,15 @@ static void ClearPostFilterHints       (SEIParameters *p_SEI);
 static void ClosePostFilterHints       (SEIParameters *p_SEI);
 static void InitFramePackingArrangement(VideoParameters *p_Vid);
 static void CloseFramePackingArrangement(SEIParameters *p_SEI);
+#if NNPF_ENABLE
+static void InitNNPFA            (SEIParameters *p_SEI, InputParameters *p_Inp);
+static void CloseNNPFA           (SEIParameters *p_SEI);
+static void ClearNNPFA           (SEIParameters *p_SEI);
+static void InitNNPFC            (SEIParameters *p_SEI, InputParameters *p_Inp);
+static void CloseNNPFC           (SEIParameters *p_SEI);
+static void ClearNNPFC           (SEIParameters *p_SEI);
+static void write_string(char *name, const char *str, Bitstream *bs);
+#endif
 
 void init_sei(SEIParameters *p_SEI)
 {
@@ -77,6 +86,10 @@ void init_sei(SEIParameters *p_SEI)
   p_SEI->seiHasSubseqInfo = FALSE;
   p_SEI->seiHasSubseqLayerInfo = FALSE;
   p_SEI->seiHasPanScanRectInfo = FALSE;
+#if NNPF_ENABLE
+  p_SEI->seiHasNNPFA=FALSE;
+  p_SEI->seiHasNNPFC=FALSE;
+#endif
 }
 
 /*
@@ -127,6 +140,12 @@ void InitSEIMessages(VideoParameters *p_Vid, InputParameters *p_Inp)
   InitDRPMRepetition(p_SEI);
   // init Frame Packing Arrangement
   InitFramePackingArrangement(p_Vid);
+#if NNPF_ENABLE
+  // Init NNPFA
+  InitNNPFA(p_SEI, p_Inp);
+  // Init NNPFC
+  InitNNPFC(p_SEI, p_Inp);
+#endif
 }
 
 void CloseSEIMessages(VideoParameters *p_Vid, InputParameters *p_Inp)
@@ -150,6 +169,10 @@ void CloseSEIMessages(VideoParameters *p_Vid, InputParameters *p_Inp)
   ClosePicTiming(p_SEI);
   CloseDRPMRepetition(p_SEI);
   CloseFramePackingArrangement(p_SEI);
+#if NNPF_ENABLE
+  CloseNNPFA(p_SEI);
+  CloseNNPFC(p_SEI);
+#endif
 
   for (i=0; i<MAX_LAYER_NUMBER; i++)
   {
@@ -190,7 +213,12 @@ Boolean HaveAggregationSEI(VideoParameters *p_Vid)
     return TRUE;
   if (p_SEI->seiHasDRPMRepetition_info)
     return TRUE;
-
+#if NNPF_ENABLE
+  if (p_SEI->seiHasNNPFA)
+    return TRUE;
+  if (p_SEI->seiHasNNPFC)
+    return TRUE;
+#endif
   return FALSE;
 //  return p_Inp->SparePictureOption && ( seiHasSpare_picture || seiHasSubseq_information ||
 //    seiHasSubseq_layer_characteristics || seiHasSubseq_characteristics );
@@ -2900,6 +2928,887 @@ static void CloseDRPMRepetition(SEIParameters *p_SEI)
   }
 }
 
+#if NNPF_ENABLE
+/*
+ ************************************************************************
+ *  \functions on NNPFC SEI message
+ *  \brief
+ *    Based on JVET-AK2006
+ *  \author
+ *    Yue Li                 <yueli983@sjtu.edu.cn>
+ ************************************************************************
+ */
+static int ParseNNPFCFile(SEIParameters *p_SEI, InputParameters *p_Inp, NNPFCSEI *pSeiNNPFC)
+{
+  FILE* fp;
+  char buf[4096];
+  char temp[4096];
+  unsigned int tmp;
+  unsigned int nnpfc_idx;
+  int i, ret;
+
+  printf("Parsing NNPFC cfg file %s .........\n", p_Inp->NNPFCFile);
+  if ((fp = fopen(p_Inp->NNPFCFile, "r")) == NULL)
+  {
+    fprintf(stderr, "NNPFC config file %s not found, disabling NNPFC SEI\n", p_Inp->NNPFCFile);
+    p_SEI->seiHasNNPFC = FALSE;
+    return 1;
+  }
+
+  while (fscanf(fp, "%s", temp) != EOF)
+  {
+    ret = 1;
+    strcpy(buf, temp);
+    if(strcmp(temp, "nnpfc_num_filters") != 0){
+      char *last_underscore = strrchr(temp, '_');
+      if (last_underscore != NULL) {
+        size_t prefix_len = last_underscore - temp;
+        ret = sscanf(last_underscore,"_%u",&nnpfc_idx);
+        if(ret==1){
+          strncpy(buf, temp, prefix_len);
+          buf[prefix_len] = '\0';
+        }
+      }
+    }
+    /* Base Fields */
+    if(strcmp(buf, "nnpfc_num_filters") == 0){
+      ret = fscanf(fp, " = %u\n", &p_SEI->nnpfc_num_filters);
+    }
+    else if (strcmp(buf, "nnpfc_purpose") == 0) {
+      ret = fscanf(fp, " = %u\n", &(pSeiNNPFC[nnpfc_idx].nnpfc_purpose));
+    }
+    else if (strcmp(buf, "nnpfc_id") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_id);
+    }
+    else if (strcmp(buf, "nnpfc_base_flag") == 0) {
+      ret = fscanf(fp, " = %u\n", &tmp);
+      pSeiNNPFC[nnpfc_idx].nnpfc_base_flag = tmp ? TRUE : FALSE;
+    }
+    else if (strcmp(buf, "nnpfc_mode_idc") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_mode_idc);
+    }
+    /* Mode IDC 1 Fields */
+    else if (strcmp(buf, "nnpfc_tag_uri") == 0) {
+      ret = fscanf(fp, " = %s\n", pSeiNNPFC[nnpfc_idx].nnpfc_tag_uri);
+    }
+    else if (strcmp(buf, "nnpfc_uri") == 0) {
+      ret = fscanf(fp, " = %s\n", pSeiNNPFC[nnpfc_idx].nnpfc_uri);
+    }
+    /* Property Present Flags */
+    else if (strcmp(buf, "nnpfc_property_present_flag") == 0) {
+      ret = fscanf(fp, " = %u\n", &tmp);
+      pSeiNNPFC[nnpfc_idx].nnpfc_property_present_flag = tmp ? TRUE : FALSE;
+    }
+    /* Input/Output Formatting */
+    else if (strcmp(buf, "nnpfc_num_input_pics_minus1") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_num_input_pics_minus1);
+      if (pSeiNNPFC[nnpfc_idx].nnpfc_num_input_pics_minus1 > 0) {
+        pSeiNNPFC[nnpfc_idx].nnpfc_input_pic_filtering_flag = 
+          malloc((pSeiNNPFC[nnpfc_idx].nnpfc_num_input_pics_minus1 + 1) * sizeof(Boolean));
+        if (!pSeiNNPFC[nnpfc_idx].nnpfc_input_pic_filtering_flag)
+          no_mem_exit("ParseNNPFCFile: input_pic_filtering_flag");
+      }
+    }
+    else if (strcmp(buf, "nnpfc_input_pic_filtering_flag") == 0) {
+      ret = fscanf(fp, " = ");
+      for (i = 0; i <= pSeiNNPFC[nnpfc_idx].nnpfc_num_input_pics_minus1; i++) {
+        ret &= fscanf(fp, "%u", &tmp);
+        pSeiNNPFC[nnpfc_idx].nnpfc_input_pic_filtering_flag[i] = tmp ? TRUE : FALSE;
+      }
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "nnpfc_absent_input_pic_zero_flag") == 0) {
+      ret = fscanf(fp, " = %u\n", &tmp);
+      pSeiNNPFC[nnpfc_idx].nnpfc_absent_input_pic_zero_flag = tmp ? TRUE : FALSE;
+    }
+    else if (strcmp(buf, "nnpfc_out_sub_c_flag") == 0) {
+      ret = fscanf(fp, " = %u\n", &tmp);
+      pSeiNNPFC[nnpfc_idx].nnpfc_out_sub_c_flag = tmp ? TRUE : FALSE;
+    }
+    else if (strcmp(buf, "nnpfc_out_colour_format_idc") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_out_colour_format_idc);
+    }
+    else if (strcmp(buf, "nnpfc_pic_width_num_minus1") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_pic_width_num_minus1);
+    }
+    else if (strcmp(buf, "nnpfc_pic_width_denom_minus1") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_pic_width_denom_minus1);
+    }
+    else if (strcmp(buf, "nnpfc_pic_height_num_minus1") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_pic_height_num_minus1);
+    }
+    else if (strcmp(buf, "nnpfc_pic_height_denom_minus1") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_pic_height_denom_minus1);
+    }
+    else if (strcmp(buf, "nnpfc_interpolated_pics") == 0) {
+      if (pSeiNNPFC[nnpfc_idx].nnpfc_num_input_pics_minus1 > 0) {
+        pSeiNNPFC[nnpfc_idx].nnpfc_interpolated_pics = 
+          malloc(pSeiNNPFC[nnpfc_idx].nnpfc_num_input_pics_minus1 * sizeof(unsigned int));
+        if (!pSeiNNPFC[nnpfc_idx].nnpfc_interpolated_pics)
+          no_mem_exit("ParseNNPFCFile: interpolated_pics");
+        ret = fscanf(fp, " = ");
+        for (i = 0; i < pSeiNNPFC[nnpfc_idx].nnpfc_num_input_pics_minus1; i++)
+          ret &= fscanf(fp, "%u", &pSeiNNPFC[nnpfc_idx].nnpfc_interpolated_pics[i]);
+      }
+    }
+    else if (strcmp(buf, "nnpfc_extrapolated_pics_minus1") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_extrapolated_pics_minus1);
+    }
+    else if (strcmp(buf, "nnpfc_spatial_extrapolation_left_offset") == 0) {
+      ret = fscanf(fp, " = %d\n", &pSeiNNPFC[nnpfc_idx].nnpfc_spatial_extrapolation_left_offset);
+    }
+    else if (strcmp(buf, "nnpfc_spatial_extrapolation_right_offset") == 0) {
+      ret = fscanf(fp, " = %d\n", &pSeiNNPFC[nnpfc_idx].nnpfc_spatial_extrapolation_right_offset);
+    }
+    else if (strcmp(buf, "nnpfc_spatial_extrapolation_top_offset") == 0) {
+      ret = fscanf(fp, " = %d\n", &pSeiNNPFC[nnpfc_idx].nnpfc_spatial_extrapolation_top_offset);
+    }
+    else if (strcmp(buf, "nnpfc_spatial_extrapolation_bottom_offset") == 0) {
+      ret = fscanf(fp, " = %d\n", &pSeiNNPFC[nnpfc_idx].nnpfc_spatial_extrapolation_bottom_offset);
+    }
+    /* Input Formatting */
+    else if (strcmp(buf, "nnpfc_inp_format_idc") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_inp_format_idc);
+    }
+    else if (strcmp(buf, "nnpfc_auxiliary_inp_idc") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_auxiliary_inp_idc);
+    }
+    /* Prompt Handling */
+    else if (strcmp(buf, "nnpfc_inband_prompt_flag") == 0) {
+      ret = fscanf(fp, " = %u\n", &tmp);
+      pSeiNNPFC[nnpfc_idx].nnpfc_inband_prompt_flag = tmp ? TRUE : FALSE;
+    }
+    else if (strcmp(buf, "nnpfc_prompt") == 0) {
+      ret = fscanf(fp, " = %4095[^\n]\n", pSeiNNPFC[nnpfc_idx].nnpfc_prompt);
+    }
+    /* Seed Handling */
+    else if (strcmp(buf, "nnpfc_inband_seed_flag") == 0) {
+      ret = fscanf(fp, " = %u\n", &tmp);
+      pSeiNNPFC[nnpfc_idx].nnpfc_inband_seed_flag = tmp ? TRUE : FALSE;
+    }
+    else if (strcmp(buf, "nnpfc_seed") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_seed);
+    }
+    else if (strcmp(buf, "nnpfc_component_last_flag") == 0) {
+      ret = fscanf(fp, " = %u\n", &tmp);
+      pSeiNNPFC[nnpfc_idx].nnpfc_component_last_flag = tmp ? TRUE : FALSE;
+    }
+    else if (strcmp(buf, "nnpfc_inp_order_idc") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_inp_order_idc);
+    }
+    else if (strcmp(buf, "nnpfc_inp_tensor_luma_bitdepth_minus8") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_inp_tensor_luma_bitdepth_minus8);
+    }
+    else if (strcmp(buf, "nnpfc_inp_tensor_chroma_bitdepth_minus8") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_inp_tensor_chroma_bitdepth_minus8);
+    }
+    else if (strcmp(buf, "nnpfc_out_format_idc") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_out_format_idc);
+    }
+    else if (strcmp(buf, "nnpfc_out_order_idc") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_out_order_idc);
+    }
+    else if (strcmp(buf, "nnpfc_out_tensor_luma_bitdepth_minus8") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_out_tensor_luma_bitdepth_minus8);
+    }
+    else if (strcmp(buf, "nnpfc_out_tensor_chroma_bitdepth_minus8") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_out_tensor_chroma_bitdepth_minus8);
+    }
+    else if (strcmp(buf, "nnpfc_separate_colour_description_present_flag") == 0) {
+      ret = fscanf(fp, " = %u\n", &tmp);
+      pSeiNNPFC[nnpfc_idx].nnpfc_separate_colour_description_present_flag = tmp ? TRUE : FALSE;
+    }
+    else if (strcmp(buf, "nnpfc_colour_primaries") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_colour_primaries);
+    }
+    else if (strcmp(buf, "nnpfc_transfer_characteristics") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_transfer_characteristics);
+    }
+    else if (strcmp(buf, "nnpfc_matrix_coeffs") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_matrix_coeffs);
+    }
+    else if (strcmp(buf, "nnpfc_full_range_flag") == 0) {
+      ret = fscanf(fp, " = %u\n", &tmp);
+      pSeiNNPFC[nnpfc_idx].nnpfc_full_range_flag = tmp ? TRUE : FALSE;
+    }
+    else if (strcmp(buf, "nnpfc_chroma_loc_present_flag") == 0) {
+      ret = fscanf(fp, " = %u\n", &tmp);
+      pSeiNNPFC[nnpfc_idx].nnpfc_chroma_loc_present_flag = tmp ? TRUE : FALSE;
+    }
+    else if (strcmp(buf, "nnpfc_chroma_sample_loc_type_frame") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_chroma_sample_loc_type_frame);
+    }
+    else if (strcmp(buf, "nnpfc_overlap") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_overlap);
+    }
+    else if (strcmp(buf, "nnpfc_constant_patch_size_flag") == 0) {
+      ret = fscanf(fp, " = %u\n", &tmp);
+      pSeiNNPFC[nnpfc_idx].nnpfc_constant_patch_size_flag = tmp ? TRUE : FALSE;
+    }
+    else if (strcmp(buf, "nnpfc_patch_width_minus1") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_patch_width_minus1);
+    }
+    else if (strcmp(buf, "nnpfc_patch_height_minus1") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_patch_height_minus1);
+    }
+    else if (strcmp(buf, "nnpfc_extended_patch_width_cd_delta_minus1") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_extended_patch_width_cd_delta_minus1);
+    }
+    else if (strcmp(buf, "nnpfc_extended_patch_height_cd_delta_minus1") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_extended_patch_height_cd_delta_minus1);
+    }
+    else if (strcmp(buf, "nnpfc_padding_type") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_padding_type);
+    }
+    else if (strcmp(buf, "nnpfc_luma_padding_val") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_luma_padding_val);
+    }
+    else if (strcmp(buf, "nnpfc_cb_padding_val") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_cb_padding_val);
+    }
+    else if (strcmp(buf, "nnpfc_cr_padding_val") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_cr_padding_val);
+    }
+    else if (strcmp(buf, "nnpfc_complexity_info_flag") == 0) {
+      ret = fscanf(fp, " = %u\n", &tmp);
+      pSeiNNPFC[nnpfc_idx].nnpfc_complexity_info_flag = tmp ? TRUE : FALSE;
+    }
+    else if (strcmp(buf, "nnpfc_parameter_type_idc") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_parameter_type_idc);
+    }
+    else if (strcmp(buf, "nnpfc_log2_parameter_bit_length_minus3") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_log2_parameter_bit_length_minus3);
+    }
+    else if (strcmp(buf, "nnpfc_num_parameters_idc") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_num_parameters_idc);
+    }
+    else if (strcmp(buf, "nnpfc_num_kmac_operations_idc") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_num_kmac_operations_idc);
+    }
+    else if (strcmp(buf, "nnpfc_total_kilobyte_size") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_total_kilobyte_size);
+    }
+    else if (strcmp(buf, "nnpfc_num_metadata_extension_bits") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_num_metadata_extension_bits);
+    }
+    else if (strcmp(buf, "nnpfc_application_purpose_tag_uri_present_flag") == 0) {
+      ret = fscanf(fp, " = %u\n", &tmp);
+      pSeiNNPFC[nnpfc_idx].nnpfc_application_purpose_tag_uri_present_flag = tmp ? TRUE : FALSE;
+    }
+    else if (strcmp(buf, "nnpfc_application_purpose_tag_uri") == 0) {
+      ret = fscanf(fp, " = %s\n", pSeiNNPFC[nnpfc_idx].nnpfc_application_purpose_tag_uri);
+    }
+    else if (strcmp(buf, "nnpfc_scan_type_idc") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_scan_type_idc);
+    }
+    else if (strcmp(buf, "nnpfc_for_human_viewing_idc") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_for_human_viewing_idc);
+    }
+    else if (strcmp(buf, "nnpfc_for_machine_analysis_idc") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_for_machine_analysis_idc);
+    }
+    else if (strcmp(buf, "nnpfc_reserved_metadata_extension") == 0) {
+      ret = fscanf(fp, " = %u\n", &pSeiNNPFC[nnpfc_idx].nnpfc_reserved_metadata_extension);
+    }
+    else if (strcmp(buf, "nnpfc_payload_filename") == 0) {
+      ret = fscanf(fp, " = %4095[^\n]\n", pSeiNNPFC[nnpfc_idx].nnpfc_payload_filename);
+      FILE* file;
+      if ((file = fopen(pSeiNNPFC[nnpfc_idx].nnpfc_payload_filename, "rb")) == NULL) 
+      {
+        fprintf(stderr, "NNPFC payload file %s is not found.\n", pSeiNNPFC[nnpfc_idx].nnpfc_payload_filename);
+        return 1;
+      }
+      if (fseek(file, 0, SEEK_END) != 0) {
+        fclose(file);
+        return -1;
+      }
+      long payload_size = ftell(file);
+      if (payload_size == -1) {
+        fclose(file);
+        return -1;
+      }
+      rewind(file);
+      pSeiNNPFC[nnpfc_idx].nnpfc_payload_byte = malloc(payload_size);
+      if( pSeiNNPFC[nnpfc_idx].nnpfc_payload_byte == NULL ) 
+        no_mem_exit("ParseNNPFCFile: pSeiNNPFC->nnpfc_payload_byte");
+      size_t bytes_read = fread(pSeiNNPFC[nnpfc_idx].nnpfc_payload_byte, 1, payload_size, file);
+      if (bytes_read != (size_t)payload_size) {
+          free(pSeiNNPFC[nnpfc_idx].nnpfc_payload_byte);
+          pSeiNNPFC[nnpfc_idx].nnpfc_payload_byte = NULL;
+          fclose(file);
+          return -1;
+      }
+      pSeiNNPFC[nnpfc_idx].nnpfc_payload_size = (unsigned int)payload_size;
+    }
+    else {
+      // read till the line end 
+      if (NULL == fgets(buf, sizeof(buf), fp))
+      {
+        error ("ParseNNPFCFile: error parsing NNPFC config file",500);
+      }
+    }
+    if (ret != 1)
+      error("ParseNNPFCFile: format error in config file", 500);
+  }
+
+  fclose(fp);
+  return 0;
+}
+
+static void InitNNPFC(SEIParameters *p_SEI, InputParameters *p_Inp) 
+{
+  if (p_Inp->NNPFCSEIPresentFlag == 0)
+  {
+    p_SEI->seiHasNNPFC = FALSE;
+    return;
+  }
+
+  for(int i = 0;i<MAX_NUM_NN_POST_FILTERS;i++){
+    p_SEI->seiNNPFC[i].data = malloc( sizeof(Bitstream) );
+    if( p_SEI->seiNNPFC[i].data == NULL ) no_mem_exit("InitNNPFC: seiNNPFC[i].data");
+    p_SEI->seiNNPFC[i].data->streamBuffer = malloc(MAXRTPPAYLOADLEN);
+    if( p_SEI->seiNNPFC[i].data->streamBuffer == NULL ) no_mem_exit("InitNNPFC: seiNNPFC[i].data->streamBuffer");
+  }
+  ClearNNPFC(p_SEI);
+  // read NNPFC config from file
+  ParseNNPFCFile(p_SEI, p_Inp, p_SEI->seiNNPFC);
+  p_SEI->seiHasNNPFC = TRUE;
+}
+static void FinalizeNNPFC(VideoParameters *p_Vid,int filter_idx)
+{
+  SEIParameters *p_SEI = p_Vid->p_SEI;
+  NNPFCSEI *sei = &p_SEI->seiNNPFC[filter_idx];
+  Bitstream *bitstream = sei->data;
+  int i;
+
+  // Base fields
+  write_u_v(16, "SEI: nnpfc_purpose", sei->nnpfc_purpose, bitstream);
+  write_ue_v("SEI: nnpfc_id", sei->nnpfc_id, bitstream);
+  write_u_1("SEI: nnpfc_base_flag", sei->nnpfc_base_flag, bitstream);
+  write_ue_v("SEI: nnpfc_mode_idc", sei->nnpfc_mode_idc, bitstream);
+
+  Boolean ChromaUpsamplingFlag = ( ( sei->nnpfc_purpose & 0x02 ) > 0 ) ? TRUE : FALSE;
+  Boolean ResolutionResamplingFlag = ( ( sei->nnpfc_purpose & 0x04 ) > 0 ) ? TRUE : FALSE;
+  Boolean PictureRateUpsamplingFlag = ( ( sei->nnpfc_purpose & 0x08 ) > 0 ) ? TRUE : FALSE;
+  Boolean BitDepthUpsamplingFlag = ( ( sei->nnpfc_purpose & 0x10 ) > 0 ) ? TRUE : FALSE;
+  Boolean ColourizationFlag = ( ( sei->nnpfc_purpose & 0x20 ) > 0 ) ? TRUE : FALSE;
+  Boolean TemporalExtrapolationFlag = ( ( sei->nnpfc_purpose & 0x40 ) > 0 ) ? TRUE : FALSE;
+  Boolean SpatialExtrapolationFlag = ( ( sei->nnpfc_purpose & 0x80 ) > 0 ) ? TRUE : FALSE;
+  // Mode IDC 1 processing
+  if (sei->nnpfc_mode_idc == 1)
+  {
+    // Byte alignment
+    while (!(bitstream->bits_to_go==8))
+      write_u_1("SEI: nnpfc_alignment_zero_bit_a", 0, bitstream);
+    
+    // String fields
+    write_string("SEI: nnpfc_tag_uri", sei->nnpfc_tag_uri, bitstream);
+    write_string("SEI: nnpfc_uri", sei->nnpfc_uri, bitstream);
+  }
+
+  // Property present branch
+  write_u_1("SEI: nnpfc_property_present_flag", sei->nnpfc_property_present_flag, bitstream);
+  if (sei->nnpfc_property_present_flag)
+  {
+    write_ue_v("SEI: nnpfc_num_input_pics_minus1", sei->nnpfc_num_input_pics_minus1, bitstream);
+    if (sei->nnpfc_num_input_pics_minus1 > 0)
+    {
+      for (i = 0; i <= sei->nnpfc_num_input_pics_minus1; i++)
+        write_u_1("SEI: nnpfc_input_pic_filtering_flag", sei->nnpfc_input_pic_filtering_flag[i], bitstream);
+      write_u_1("SEI: nnpfc_absent_input_pic_zero_flag", sei->nnpfc_absent_input_pic_zero_flag, bitstream);
+    }
+
+    // Chroma upsampling
+    if (ChromaUpsamplingFlag)  // 
+      write_u_1("SEI: nnpfc_out_sub_c_flag", sei->nnpfc_out_sub_c_flag, bitstream);
+
+    // Colorization
+    if (ColourizationFlag)     // 
+      write_u_v(2, "SEI: nnpfc_out_colour_format_idc", sei->nnpfc_out_colour_format_idc, bitstream);
+
+    // Resolution resampling
+    if (ResolutionResamplingFlag) 
+    {
+      write_ue_v("SEI: nnpfc_pic_width_num_minus1", sei->nnpfc_pic_width_num_minus1, bitstream);
+      write_ue_v("SEI: nnpfc_pic_width_denom_minus1", sei->nnpfc_pic_width_denom_minus1, bitstream);
+      write_ue_v("SEI: nnpfc_pic_height_num_minus1", sei->nnpfc_pic_height_num_minus1, bitstream);
+      write_ue_v("SEI: nnpfc_pic_height_denom_minus1", sei->nnpfc_pic_height_denom_minus1, bitstream);
+    }
+
+    // PictureRateUpsamplingFlag
+    if(PictureRateUpsamplingFlag){
+      for( i = 0; i < sei->nnpfc_num_input_pics_minus1; i++ ){
+        write_ue_v("SEI: nnpfc_interpolated_pics[i]", sei->nnpfc_interpolated_pics[i], bitstream);
+      }
+    }
+
+    // Temporal processing
+    if (TemporalExtrapolationFlag)
+      write_ue_v("SEI: nnpfc_extrapolated_pics_minus1", sei->nnpfc_extrapolated_pics_minus1, bitstream);
+
+    // Spatial processing
+    if (SpatialExtrapolationFlag)
+    {
+      write_se_v("SEI: nnpfc_spatial_extrapolation_left_offset", sei->nnpfc_spatial_extrapolation_left_offset, bitstream);
+      write_se_v("SEI: nnpfc_spatial_extrapolation_right_offset", sei->nnpfc_spatial_extrapolation_right_offset, bitstream);
+      write_se_v("SEI: nnpfc_spatial_extrapolation_top_offset", sei->nnpfc_spatial_extrapolation_top_offset, bitstream);
+      write_se_v("SEI: nnpfc_spatial_extrapolation_bottom_offset", sei->nnpfc_spatial_extrapolation_bottom_offset, bitstream);
+    }
+
+    write_u_1("SEI: nnpfc_component_last_flag", sei->nnpfc_component_last_flag, bitstream);
+    write_ue_v("SEI: nnpfc_inp_format_idc", sei->nnpfc_inp_format_idc, bitstream);
+    write_ue_v("SEI: nnpfc_auxiliary_inp_idc", sei->nnpfc_auxiliary_inp_idc, bitstream);
+    if ((sei->nnpfc_auxiliary_inp_idc & 0x2)>0)
+    {
+      write_u_1("SEI: nnpfc_inband_prompt_flag", sei->nnpfc_inband_prompt_flag, bitstream);
+      if (sei->nnpfc_inband_prompt_flag)
+      {
+        while (!(bitstream->bits_to_go==8))
+          write_u_1("SEI: nnpfc_alignment_zero_bit_c", 0, bitstream);
+        write_string("SEI: nnpfc_prompt", sei->nnpfc_prompt, bitstream);
+      }
+    }
+    
+    // nnpfc_seed
+    if ((sei->nnpfc_auxiliary_inp_idc & 0x4)>0)
+    {
+      write_u_1("SEI: nnpfc_inband_seed_flag", sei->nnpfc_inband_seed_flag, bitstream);
+      if (sei->nnpfc_inband_seed_flag)
+        write_u_v(16, "SEI: nnpfc_seed", sei->nnpfc_seed, bitstream);
+    }
+
+    /* nnpfc_inp_order_idc */
+    write_ue_v("SEI: nnpfc_inp_order_idc", sei->nnpfc_inp_order_idc, bitstream);
+    if (sei->nnpfc_inp_format_idc == 1)
+    {
+      if (sei->nnpfc_inp_order_idc != 1)
+        write_ue_v("SEI: nnpfc_inp_tensor_luma_bitdepth_minus8", sei->nnpfc_inp_tensor_luma_bitdepth_minus8, bitstream);
+      if (sei->nnpfc_inp_order_idc > 0)
+        write_ue_v("SEI: nnpfc_inp_tensor_chroma_bitdepth_minus8", sei->nnpfc_inp_tensor_chroma_bitdepth_minus8, bitstream);
+    }
+    if(BitDepthUpsamplingFlag&&(sei->nnpfc_out_format_idc!=1)){
+      error("When BitDepthUpsamplingFlag is equal to 1, the value of nnpfc_out_format_idc shall be equal to 1",500);
+    }
+    /* nnpfc_out_format_idc */
+    write_ue_v("SEI: nnpfc_out_format_idc", sei->nnpfc_out_format_idc, bitstream);
+    write_ue_v("SEI: nnpfc_out_order_idc", sei->nnpfc_out_order_idc, bitstream);
+    if (sei->nnpfc_out_format_idc == 1)
+    {
+      if (sei->nnpfc_out_order_idc != 1)
+        write_ue_v("SEI: nnpfc_out_tensor_luma_bitdepth_minus8", sei->nnpfc_out_tensor_luma_bitdepth_minus8, bitstream);
+      if (sei->nnpfc_out_order_idc != 0)
+        write_ue_v("SEI: nnpfc_out_tensor_chroma_bitdepth_minus8", sei->nnpfc_out_tensor_chroma_bitdepth_minus8, bitstream);
+    }
+
+    /* nnpfc_separate_colour_description_present_flag */
+    write_u_1("SEI: nnpfc_separate_colour_description_present_flag", sei->nnpfc_separate_colour_description_present_flag, bitstream);
+    if (sei->nnpfc_separate_colour_description_present_flag)
+    {
+      write_u_v(8, "SEI: nnpfc_colour_primaries", sei->nnpfc_colour_primaries, bitstream);
+      write_u_v(8, "SEI: nnpfc_transfer_characteristics", sei->nnpfc_transfer_characteristics, bitstream);
+      if (sei->nnpfc_out_format_idc == 1)
+      {
+        write_u_v(8, "SEI: nnpfc_matrix_coeffs", sei->nnpfc_matrix_coeffs, bitstream);
+        write_u_1("SEI: nnpfc_full_range_flag", sei->nnpfc_full_range_flag, bitstream);
+      }
+  }
+  /* nnpfc_chroma_loc_present_flag */
+  if (sei->nnpfc_out_order_idc > 0)
+  {
+    write_u_1("SEI: nnpfc_chroma_loc_present_flag", sei->nnpfc_chroma_loc_present_flag, bitstream);
+  }
+  if (sei->nnpfc_chroma_loc_present_flag){
+    write_ue_v("SEI: nnpfc_chroma_sample_loc_type_frame", sei->nnpfc_chroma_sample_loc_type_frame, bitstream);
+  }
+  /* nnpfc_overlap */
+  if (!SpatialExtrapolationFlag)
+  {
+    write_ue_v("SEI: nnpfc_overlap", sei->nnpfc_overlap, bitstream);
+    write_u_1("SEI: nnpfc_constant_patch_size_flag", sei->nnpfc_constant_patch_size_flag, bitstream);
+  }
+
+  if (sei->nnpfc_constant_patch_size_flag)
+  {
+    write_ue_v("SEI: nnpfc_patch_width_minus1", sei->nnpfc_patch_width_minus1, bitstream);
+    write_ue_v("SEI: nnpfc_patch_height_minus1", sei->nnpfc_patch_height_minus1, bitstream);
+  }
+  else
+  {
+    write_ue_v("SEI: nnpfc_extended_patch_width_cd_delta_minus1", sei->nnpfc_extended_patch_width_cd_delta_minus1, bitstream);
+    write_ue_v("SEI: nnpfc_extended_patch_height_cd_delta_minus1", sei->nnpfc_extended_patch_height_cd_delta_minus1, bitstream);
+  }
+
+  /* nnpfc_padding_type */
+  write_ue_v("SEI: nnpfc_padding_type", sei->nnpfc_padding_type, bitstream);
+  if (sei->nnpfc_padding_type == 4)
+  {
+    if (sei->nnpfc_inp_order_idc != 1)
+      write_ue_v("SEI: nnpfc_luma_padding_val", sei->nnpfc_luma_padding_val, bitstream);
+    if (sei->nnpfc_inp_order_idc != 0)
+    {
+      write_ue_v("SEI: nnpfc_cb_padding_val", sei->nnpfc_cb_padding_val, bitstream);
+      write_ue_v("SEI: nnpfc_cr_padding_val", sei->nnpfc_cr_padding_val, bitstream);
+    }
+  }
+
+  /* nnpfc_complexity_info_flag */
+  write_u_1("SEI: nnpfc_complexity_info_flag", sei->nnpfc_complexity_info_flag, bitstream);
+  if (sei->nnpfc_complexity_info_flag)
+  {
+    write_u_v(2, "SEI: nnpfc_parameter_type_idc", sei->nnpfc_parameter_type_idc, bitstream);
+    if (sei->nnpfc_parameter_type_idc != 2)
+      write_u_v(2, "SEI: nnpfc_log2_parameter_bit_length_minus3", sei->nnpfc_log2_parameter_bit_length_minus3, bitstream);
+    write_u_v(6, "SEI: nnpfc_num_parameters_idc", sei->nnpfc_num_parameters_idc, bitstream);
+    write_ue_v("SEI: nnpfc_num_kmac_operations_idc", sei->nnpfc_num_kmac_operations_idc, bitstream);
+    write_ue_v("SEI: nnpfc_total_kilobyte_size", sei->nnpfc_total_kilobyte_size, bitstream);
+  }
+
+  /* metadata_extension */
+  sei->nnpfc_num_metadata_extension_bits = 0;
+  if (sei->nnpfc_purpose == 0 || sei->nnpfc_for_human_viewing_idc != 0 || sei->nnpfc_for_machine_analysis_idc != 0 || SpatialExtrapolationFlag || ResolutionResamplingFlag)
+  {
+    if (sei->nnpfc_purpose == 0)
+    {
+      sei->nnpfc_num_metadata_extension_bits++; // nnpfc_application_purpose_tag_uri_present_flag
+      if (sei->nnpfc_application_purpose_tag_uri_present_flag)
+      {
+        sei->nnpfc_num_metadata_extension_bits += bitstream->bits_to_go%8; // nnpfc_metadata_alignment_zero_bit
+        sei->nnpfc_num_metadata_extension_bits +=  ((strlen(sei->nnpfc_application_purpose_tag_uri) + 1) * 8); //nnpfc_application_purpose_tag_uri
+      }
+    }
+    if (SpatialExtrapolationFlag || ResolutionResamplingFlag){
+      sei->nnpfc_num_metadata_extension_bits += 2; //nnpfc_scan_type_idc
+    }
+    sei->nnpfc_num_metadata_extension_bits += 4;  // nnpfc_for_human_viewing_idc and nnpfc_for_machine_analysis_idc bits
+
+    write_ue_v("SEI: nnpfc_num_metadata_extension_bits", sei->nnpfc_num_metadata_extension_bits, bitstream);
+    if (sei->nnpfc_purpose == 0)
+    {
+      write_u_1("SEI: nnpfc_application_purpose_tag_uri_present_flag", sei->nnpfc_application_purpose_tag_uri_present_flag, bitstream);
+      if (sei->nnpfc_application_purpose_tag_uri_present_flag)
+      {
+        while (!(bitstream->bits_to_go==8))
+          write_u_1("SEI: nnpfc_metadata_alignment_zero_bit", 0, bitstream);
+        write_string("SEI: nnpfc_application_purpose_tag_uri", sei->nnpfc_application_purpose_tag_uri, bitstream);
+      }
+    }
+
+    if (SpatialExtrapolationFlag || ResolutionResamplingFlag)
+      write_u_v(2, "SEI: nnpfc_scan_type_idc", sei->nnpfc_scan_type_idc, bitstream);
+
+    write_u_v(2, "SEI: nnpfc_for_human_viewing_idc", sei->nnpfc_for_human_viewing_idc, bitstream);
+    write_u_v(2, "SEI: nnpfc_for_machine_analysis_idc", sei->nnpfc_for_machine_analysis_idc, bitstream);
+  }
+  else{
+    write_ue_v("SEI: nnpfc_num_metadata_extension_bits", sei->nnpfc_num_metadata_extension_bits, bitstream);
+  }
+}
+  // Mode IDC 0 payload
+  if (sei->nnpfc_mode_idc == 0)
+  {
+    while (!(bitstream->bits_to_go==8))
+      write_u_1("SEI: nnpfc_alignment_zero_bit_b", 0, bitstream);
+    
+    for (i = 0; i < sei->nnpfc_payload_size; i++)
+      write_u_v(8, "SEI: nnpfc_payload_byte", sei->nnpfc_payload_byte[i], bitstream);
+  }
+
+  // make sure the payload is byte aligned, stuff bits are 10..0
+  if ( bitstream->bits_to_go != 8 )
+  {
+    (bitstream->byte_buf) <<= 1;
+    bitstream->byte_buf |= 1;
+    bitstream->bits_to_go--;
+    if ( bitstream->bits_to_go != 0 )
+      (bitstream->byte_buf) <<= (bitstream->bits_to_go);
+    bitstream->bits_to_go = 8;
+    bitstream->streamBuffer[bitstream->byte_pos++]=bitstream->byte_buf;
+    bitstream->byte_buf = 0;
+  }
+  
+  sei->payloadSize = bitstream->byte_pos;
+}
+
+static void write_string(char *name, const char *str, Bitstream *bs)
+{
+  for (int i=0; str[i]!='\0'; ++i)
+    write_u_v(8, name, str[i], bs);
+  write_u_v(8, name, '\0', bs); // NULL terminator
+}
+
+void UpdateNNPFC(SEIParameters *p_SEI) 
+{
+
+}
+static void ClearNNPFC(SEIParameters *p_SEI) 
+{
+  for(int i=0;i<MAX_NUM_NN_POST_FILTERS;i++){
+    memset( p_SEI->seiNNPFC[i].data->streamBuffer, 0, MAXRTPPAYLOADLEN);
+    p_SEI->seiNNPFC[i].data->bits_to_go  = 8;
+    p_SEI->seiNNPFC[i].data->byte_pos    = 0;
+    p_SEI->seiNNPFC[i].data->byte_buf    = 0;
+    p_SEI->seiNNPFC[i].payloadSize       = 0;
+  }
+  p_SEI->seiHasNNPFC=FALSE;
+}
+static void CloseNNPFC(SEIParameters *p_SEI) 
+{
+  for(int i=0;i<MAX_NUM_NN_POST_FILTERS;i++){
+    if (p_SEI->seiNNPFC[i].data)
+    {
+      free(p_SEI->seiNNPFC[i].data->streamBuffer);
+      free(p_SEI->seiNNPFC[i].data);
+      free(p_SEI->seiNNPFC[i].nnpfc_input_pic_filtering_flag);
+      free(p_SEI->seiNNPFC[i].nnpfc_interpolated_pics);
+      free(p_SEI->seiNNPFC[i].nnpfc_payload_byte);
+    }
+    p_SEI->seiNNPFC[i].data = NULL;
+  }
+  p_SEI->seiHasNNPFC = FALSE;
+}
+
+/*
+ ************************************************************************
+ *  \functions on NNPFA SEI message
+ *  \brief
+ *    Based on JVET-AK2006
+ *  \author
+ *    Yue Li                 <yueli983@sjtu.edu.cn>
+ ************************************************************************
+ */
+static int ParseNNPFAFile(SEIParameters *p_SEI, InputParameters *p_Inp, NNPFASEI *pSeiNNPFA)
+{
+  int i;
+  int ret;
+  FILE* fp;
+  char buf[4096];
+  unsigned int tmp;
+
+  printf ("Parsing NNPFA cfg file %s ..........\n\n", p_Inp->NNPFAFile);
+  if ((fp = fopen(p_Inp->NNPFAFile, "r")) == NULL) 
+  {
+    fprintf(stderr, "NNPFA config file %s is not found, disable NNPFA SEI\n", p_Inp->NNPFAFile);
+    p_SEI->seiHasNNPFA=FALSE;
+
+    return 1;
+  }
+
+  // read the NNPFAFile config file
+  while (fscanf(fp, "%s", buf)!=EOF) 
+  {
+    ret = 1;
+    if (strcmp(buf, "nnpfa_target_id")==0) 
+    {
+      ret = fscanf(fp, " = %ud\n", &(pSeiNNPFA->nnpfa_target_id));
+    }
+    else if (strcmp(buf, "nnpfa_cancel_flag")==0) 
+    {
+      ret = fscanf(fp, " = %ud\n", &tmp);
+      pSeiNNPFA->nnpfa_cancel_flag = tmp?TRUE:FALSE;
+    }
+    else if (strcmp(buf, "nnpfa_persistence_flag")==0) 
+    {
+      ret = fscanf(fp, " = %ud\n", &tmp);
+      pSeiNNPFA->nnpfa_persistence_flag = tmp?TRUE:FALSE;
+    }
+    else if (strcmp(buf, "nnpfa_target_base_flag")==0) 
+    {
+      ret = fscanf(fp, " = %ud\n", &tmp);
+      pSeiNNPFA->nnpfa_target_base_flag = tmp?TRUE:FALSE;
+    }
+    else if (strcmp(buf, "nnpfa_no_prev_clvs_flag")==0) 
+    {
+      ret = fscanf(fp, " = %ud\n", &tmp);
+      pSeiNNPFA->nnpfa_no_prev_clvs_flag = tmp?TRUE:FALSE;
+    }
+    else if (strcmp(buf, "nnpfa_no_foll_clvs_flag")==0) 
+    {
+      ret = fscanf(fp, " = %ud\n", &tmp);
+      pSeiNNPFA->nnpfa_no_foll_clvs_flag = tmp?TRUE:FALSE;
+    }
+    else if (strcmp(buf, "nnpfa_num_output_entries")==0) 
+    {
+      ret = fscanf(fp, " = %ud\n", &(pSeiNNPFA->nnpfa_num_output_entries));
+      pSeiNNPFA->nnpfa_output_flag = malloc(pSeiNNPFA->nnpfa_num_output_entries*sizeof(Boolean));
+      if(pSeiNNPFA->nnpfa_output_flag == NULL ) no_mem_exit("ParseNNPFAFile: pSeiNNPFA->nnpfa_output_flag");
+    }
+    else if (strcmp(buf, "nnpfa_output_flag")==0) 
+    {
+      // a list
+      ret = fscanf(fp, " = ");
+      if (ret!=0)
+      {
+        error ("ParseNNPFAFile: error parsing NNPFA config file",500);
+      }
+      for (i=0; i < pSeiNNPFA->nnpfa_num_output_entries; i++)
+      {
+        // TODO: check the seperator
+        ret = fscanf(fp, "%ud\n", &tmp);
+        if (ret!=1)
+        {
+          error ("ParseNNPFAFile: error parsing NNPFA config file",500);
+        }
+        pSeiNNPFA->nnpfa_output_flag[i] = tmp?TRUE:FALSE;
+      }
+    }
+    else if (strcmp(buf, "nnpfa_prompt_update_flag")==0) 
+    {
+      ret = fscanf(fp, " = %ud\n", &tmp);
+      pSeiNNPFA->nnpfa_prompt_update_flag = tmp?TRUE:FALSE;
+    }
+    else if (strcmp(buf, "nnpfa_prompt")==0) 
+    {
+      ret = fscanf(fp, " = %4095[^\n]\n", pSeiNNPFA->nnpfa_prompt);
+    }
+    else if (strcmp(buf, "nnpfa_seed_update_flag")==0) 
+    {
+      ret = fscanf(fp, " = %ud\n", &tmp);
+      pSeiNNPFA->nnpfa_seed_update_flag = tmp?TRUE:FALSE;
+    }
+    else if (strcmp(buf, "nnpfa_seed")==0) 
+    {
+      ret = fscanf(fp, " = %d\n", &(pSeiNNPFA->nnpfa_seed));
+    }
+    else if (strcmp(buf, "nnpfa_num_input_pic_shift")==0) 
+    {
+      ret = fscanf(fp, " = %ud\n", &tmp);
+      pSeiNNPFA->nnpfa_num_input_pic_shift = (unsigned char)tmp;
+    }
+    else
+    {
+      // read till the line end 
+      if (NULL == fgets(buf, sizeof(buf), fp))
+      {
+        error ("ParseNNPFAFile: error parsing NNPFA config file",500);
+      }
+    }
+    if (ret!=1)
+    {
+      error ("ParseNNPFAFile: error parsing NNPFA config file",500);
+    }
+  }
+
+  fclose(fp);
+
+  return 0;
+}
+static void InitNNPFA(SEIParameters *p_SEI, InputParameters *p_Inp) 
+{
+  if (p_Inp->NNPFASEIPresentFlag == 0)
+  {
+    p_SEI->seiHasNNPFA = FALSE;
+    return;
+  }
+
+  p_SEI->seiNNPFA.data = malloc( sizeof(Bitstream) );
+  if( p_SEI->seiNNPFA.data == NULL ) no_mem_exit("InitNNPFA: seiNNPFA.data");
+  p_SEI->seiNNPFA.data->streamBuffer = malloc(MAXRTPPAYLOADLEN);
+  if( p_SEI->seiNNPFA.data->streamBuffer == NULL ) no_mem_exit("InitNNPFA: InitNNPFA.data->streamBuffer");
+  
+  ClearNNPFA(p_SEI);
+  // read NNPFA config from file
+  ParseNNPFAFile(p_SEI, p_Inp, &p_SEI->seiNNPFA);
+  p_SEI->seiHasNNPFA = TRUE;
+}
+static void FinalizeNNPFA(VideoParameters *p_Vid)
+{
+  SEIParameters *p_SEI = p_Vid->p_SEI;
+
+  Bitstream *bitstream = p_SEI->seiNNPFA.data;  
+  int i;
+
+  write_ue_v("SEI: nnpfa_target_id",p_SEI->seiNNPFA.nnpfa_target_id,bitstream);
+  write_u_1("SEI: nnpfa_cancel_flag",p_SEI->seiNNPFA.nnpfa_cancel_flag,bitstream);
+  if(!p_SEI->seiNNPFA.nnpfa_cancel_flag){
+    write_u_1("SEI: nnpfa_persistence_flag",p_SEI->seiNNPFA.nnpfa_persistence_flag,bitstream);
+    write_u_1("SEI: nnpfa_target_base_flag",p_SEI->seiNNPFA.nnpfa_target_base_flag,bitstream);
+    write_u_1("SEI: nnpfa_no_prev_clvs_flag",p_SEI->seiNNPFA.nnpfa_no_prev_clvs_flag,bitstream);
+    if (p_SEI->seiNNPFA.nnpfa_persistence_flag)
+    {
+      write_u_1("SEI: nnpfa_no_foll_clvs_flag",p_SEI->seiNNPFA.nnpfa_no_foll_clvs_flag,bitstream);
+    }
+    write_ue_v("SEI: nnpfa_num_output_entries",p_SEI->seiNNPFA.nnpfa_num_output_entries,bitstream);
+    for (i = 0; i < p_SEI->seiNNPFA.nnpfa_num_output_entries; i++)
+    {
+      write_u_1("SEI: nnpfa_output_flag[i]",p_SEI->seiNNPFA.nnpfa_output_flag[i],bitstream);
+    }
+    write_u_1("SEI: nnpfa_prompt_update_flag",p_SEI->seiNNPFA.nnpfa_prompt_update_flag,bitstream);
+    if (p_SEI->seiNNPFA.nnpfa_prompt_update_flag)
+    {
+      while (!(bitstream->bits_to_go==8))
+      {
+        write_u_1("SEI: nnpfa_alignment_zero_bit",0,bitstream);
+      }
+      for (int i = 0; i < strlen(p_SEI->seiNNPFA.nnpfa_prompt); ++i)
+      {
+        write_u_v(8,"SEI: nnpfa_prompt",p_SEI->seiNNPFA.nnpfa_prompt[i],bitstream);
+      }
+      write_u_v(8,"SEI: nnpfa_prompt",'\0',bitstream);
+    }
+    write_u_1("SEI: nnpfa_seed_update_flag",p_SEI->seiNNPFA.nnpfa_seed_update_flag,bitstream);
+    if(p_SEI->seiNNPFA.nnpfa_seed_update_flag){
+      write_u_v(16,"SEI: nnpfa_seed",p_SEI->seiNNPFA.nnpfa_seed,bitstream);
+    }
+    write_ue_v("SEI: nnpfa_num_input_pic_shift",p_SEI->seiNNPFA.nnpfa_num_input_pic_shift,bitstream);
+    
+  }
+
+  // make sure the payload is byte aligned, stuff bits are 10..0
+  if ( bitstream->bits_to_go != 8 )
+  {
+    (bitstream->byte_buf) <<= 1;
+    bitstream->byte_buf |= 1;
+    bitstream->bits_to_go--;
+    if ( bitstream->bits_to_go != 0 )
+      (bitstream->byte_buf) <<= (bitstream->bits_to_go);
+    bitstream->bits_to_go = 8;
+    bitstream->streamBuffer[bitstream->byte_pos++]=bitstream->byte_buf;
+    bitstream->byte_buf = 0;
+  }
+  p_SEI->seiNNPFA.payloadSize = bitstream->byte_pos;
+  
+}
+void UpdateNNPFA(SEIParameters *p_SEI) 
+{
+
+}
+static void ClearNNPFA(SEIParameters *p_SEI) 
+{
+  memset( p_SEI->seiNNPFA.data->streamBuffer, 0, MAXRTPPAYLOADLEN);
+  p_SEI->seiNNPFA.data->bits_to_go  = 8;
+  p_SEI->seiNNPFA.data->byte_pos    = 0;
+  p_SEI->seiNNPFA.data->byte_buf    = 0;
+  p_SEI->seiNNPFA.payloadSize       = 0;
+
+  p_SEI->seiNNPFA.nnpfa_target_id = 0;
+  p_SEI->seiNNPFA.nnpfa_cancel_flag = 0;
+  p_SEI->seiNNPFA.nnpfa_persistence_flag = 0;
+  p_SEI->seiNNPFA.nnpfa_target_base_flag = 0;
+  p_SEI->seiNNPFA.nnpfa_no_prev_clvs_flag = 0;
+  p_SEI->seiNNPFA.nnpfa_no_foll_clvs_flag = 0;
+  p_SEI->seiNNPFA.nnpfa_num_output_entries = 0;
+  p_SEI->seiNNPFA.nnpfa_prompt_update_flag = 0;
+  memset(p_SEI->seiNNPFA.nnpfa_prompt, 0, sizeof(p_SEI->seiNNPFA.nnpfa_prompt));
+  p_SEI->seiNNPFA.nnpfa_seed_update_flag = 0;
+  p_SEI->seiNNPFA.nnpfa_seed = 0;
+  p_SEI->seiNNPFA.nnpfa_num_input_pic_shift = 0;
+
+  p_SEI->seiHasNNPFA=FALSE;
+}
+
+static void CloseNNPFA(SEIParameters *p_SEI) 
+{
+  if (p_SEI->seiNNPFA.data)
+  {
+    free(p_SEI->seiNNPFA.data->streamBuffer);
+    free(p_SEI->seiNNPFA.data);
+    free(p_SEI->seiNNPFA.nnpfa_output_flag);
+  }
+  p_SEI->seiNNPFA.data = NULL;
+  p_SEI->seiHasNNPFA = FALSE;
+}
+#endif
+
 /*!
  *****************************************************************************
  * \brief
@@ -3036,7 +3945,24 @@ void PrepareAggregationSEIMessage(VideoParameters *p_Vid)
     write_sei_message(p_SEI, AGGREGATION_SEI, p_SEI->seiFramePackingArrangement.data->streamBuffer, p_SEI->seiFramePackingArrangement.payloadSize, SEI_FRAME_PACKING_ARRANGEMENT);
     has_aggregation_sei_message = TRUE;
   }
-
+#if NNPF_ENABLE  
+  if (p_SEI->seiHasNNPFC)
+  {
+    for(int i=0;i<p_SEI->nnpfc_num_filters;i++){
+      FinalizeNNPFC(p_Vid,i);
+      write_sei_message(p_SEI, AGGREGATION_SEI, p_SEI->seiNNPFC[i].data->streamBuffer, p_SEI->seiNNPFC[i].payloadSize, SEI_NNPFC);
+  }
+    has_aggregation_sei_message = TRUE;
+    ClearNNPFC(p_SEI);
+  }
+  if (p_SEI->seiHasNNPFA)
+  {
+    FinalizeNNPFA(p_Vid);
+    write_sei_message(p_SEI, AGGREGATION_SEI, p_SEI->seiNNPFA.data->streamBuffer, p_SEI->seiNNPFA.payloadSize, SEI_NNPFA);
+    has_aggregation_sei_message = TRUE;
+    ClearNNPFA(p_SEI);
+  }
+#endif
   // after all the sei payload is written
   if (has_aggregation_sei_message)
   {

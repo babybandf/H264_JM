@@ -402,6 +402,16 @@ struct inp_par_enc
   int ToneMappingSEIPresentFlag;
   char ToneMappingFile[FILE_NAME_SIZE];    //!< ToneMapping SEI message cfg file
 
+#if NNPF_ENABLE
+  // NNPFA SEI message
+  int NNPFASEIPresentFlag;
+  char  NNPFAFile[FILE_NAME_SIZE];    //!< NNPFA SEI message cfg file
+  
+  // NNPFC SEI message
+  int  NNPFCSEIPresentFlag;
+  char  NNPFCFile[FILE_NAME_SIZE];    //!< NNPFC SEI message cfg file
+#endif
+
   // prediction structure
   int PreferDispOrder;       //!< Prefer display order when building the prediction structure as opposed to coding order
   int PreferPowerOfTwo;      //!< Prefer prediction structures that have lengths expressed as powers of two
