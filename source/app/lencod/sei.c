@@ -3716,7 +3716,7 @@ static void FinalizeNNPFA(VideoParameters *p_Vid)
   SEIParameters *p_SEI = p_Vid->p_SEI;
 
   Bitstream *bitstream = p_SEI->seiNNPFA.data;  
-  int i;
+  unsigned int i;
 
   write_ue_v("SEI: nnpfa_target_id",p_SEI->seiNNPFA.nnpfa_target_id,bitstream);
   write_u_1("SEI: nnpfa_cancel_flag",p_SEI->seiNNPFA.nnpfa_cancel_flag,bitstream);
