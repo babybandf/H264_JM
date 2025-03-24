@@ -2350,7 +2350,7 @@ void interpret_nnpfc_info( byte* payload, int size, VideoParameters *p_Vid )
   Bitstream* buf;
   NNPFCSEI seiNNPFC;
   memset(&seiNNPFC, 0, sizeof(NNPFCSEI));
-  int i;
+  unsigned int i;
   unsigned char term_char;
 
   buf = malloc(sizeof(Bitstream));
@@ -2826,7 +2826,7 @@ void interpret_nnpfa_info( byte* payload, int size, VideoParameters *p_Vid )
   Bitstream* buf;
   NNPFASEI seiNNPFA;
   clear_nnpfa(&seiNNPFA);
-  int i;
+  unsigned int i;
   unsigned int tmp;
 
   buf = malloc(sizeof(Bitstream));

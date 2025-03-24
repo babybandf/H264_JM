@@ -2945,7 +2945,8 @@ static int ParseNNPFCFile(SEIParameters *p_SEI, InputParameters *p_Inp, NNPFCSEI
   char temp[4096];
   unsigned int tmp;
   unsigned int nnpfc_idx;
-  int i, ret;
+  int ret;
+  unsigned int i;
 
   printf("Parsing NNPFC cfg file %s .........\n", p_Inp->NNPFCFile);
   if ((fp = fopen(p_Inp->NNPFCFile, "r")) == NULL)
@@ -3279,7 +3280,7 @@ static void FinalizeNNPFC(VideoParameters *p_Vid,int filter_idx)
   SEIParameters *p_SEI = p_Vid->p_SEI;
   NNPFCSEI *sei = &p_SEI->seiNNPFC[filter_idx];
   Bitstream *bitstream = sei->data;
-  int i;
+  unsigned int i;
 
   // Base fields
   write_u_v(16, "SEI: nnpfc_purpose", sei->nnpfc_purpose, bitstream);
@@ -3473,7 +3474,7 @@ static void FinalizeNNPFC(VideoParameters *p_Vid,int filter_idx)
       if (sei->nnpfc_application_purpose_tag_uri_present_flag)
       {
         sei->nnpfc_num_metadata_extension_bits += bitstream->bits_to_go%8; // nnpfc_metadata_alignment_zero_bit
-        sei->nnpfc_num_metadata_extension_bits +=  ((strlen(sei->nnpfc_application_purpose_tag_uri) + 1) * 8); //nnpfc_application_purpose_tag_uri
+        sei->nnpfc_num_metadata_extension_bits +=  (unsigned int)((strlen(sei->nnpfc_application_purpose_tag_uri) + 1) * 8); //nnpfc_application_purpose_tag_uri
       }
     }
     if (SpatialExtrapolationFlag || ResolutionResamplingFlag){
@@ -3578,7 +3579,7 @@ static void CloseNNPFC(SEIParameters *p_SEI)
  */
 static int ParseNNPFAFile(SEIParameters *p_SEI, InputParameters *p_Inp, NNPFASEI *pSeiNNPFA)
 {
-  int i;
+  unsigned int i;
   int ret;
   FILE* fp;
   char buf[4096];
