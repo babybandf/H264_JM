@@ -3275,7 +3275,7 @@ static void InitNNPFC(SEIParameters *p_SEI, InputParameters *p_Inp)
   ParseNNPFCFile(p_SEI, p_Inp, p_SEI->seiNNPFC);
   p_SEI->seiHasNNPFC = TRUE;
 }
-static void FinalizeNNPFC(VideoParameters *p_Vid,int filter_idx)
+static void FinalizeNNPFC(VideoParameters *p_Vid, unsigned int filter_idx)
 {
   SEIParameters *p_SEI = p_Vid->p_SEI;
   NNPFCSEI *sei = &p_SEI->seiNNPFC[filter_idx];
@@ -3949,7 +3949,7 @@ void PrepareAggregationSEIMessage(VideoParameters *p_Vid)
 #if NNPF_ENABLE  
   if (p_SEI->seiHasNNPFC)
   {
-    for(int i=0;i<p_SEI->nnpfc_num_filters;i++){
+    for(unsigned int i=0;i<p_SEI->nnpfc_num_filters;i++){
       FinalizeNNPFC(p_Vid,i);
       write_sei_message(p_SEI, AGGREGATION_SEI, p_SEI->seiNNPFC[i].data->streamBuffer, p_SEI->seiNNPFC[i].payloadSize, SEI_NNPFC);
   }
