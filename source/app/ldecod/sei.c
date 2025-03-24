@@ -56,7 +56,11 @@
 // #define PRINT_POST_FILTER_HINT_INFO                // uncomment to print post-filter hint SEI info
 // #define PRINT_FRAME_PACKING_ARRANGEMENT_INFO       // uncomment to print frame packing arrangement SEI info
 // #define PRINT_GREEN_METADATA_INFO      // uncomment to print Green Metadata SEI info
+#if NNPF_ENABLE
+// #define PRINT_NNPFC_INFO      // uncomment to print NNPFC SEI info
+// #define PRINT_NNPFA_INFO      // uncomment to print NNPFA SEI info
 
+#endif
 /*!
  ************************************************************************
  *  \brief
@@ -177,6 +181,14 @@ void InterpretSEIMessage(byte* msg, int size, VideoParameters *p_Vid, Slice *pSl
     case  SEI_GREEN_METADATA:
       interpret_green_metadata_info( msg+offset, payload_size, p_Vid );
       break;
+#if NNPF_ENABLE
+    case  SEI_NNPFC:
+      interpret_nnpfc_info( msg+offset, payload_size, p_Vid );
+      break;
+    case  SEI_NNPFA:
+      interpret_nnpfa_info( msg+offset, payload_size, p_Vid );
+      break;
+#endif
     default:
       interpret_reserved_info( msg+offset, payload_size, p_Vid );
       break;    
@@ -2317,3 +2329,599 @@ void interpret_green_metadata_info(byte* payload, int size, VideoParameters *p_V
 
   free (buf);
 }
+
+
+#if NNPF_ENABLE
+/*!
+ ************************************************************************
+ *  \brief
+ *     Interpret the NNPFC SEI message
+ *  \param payload
+ *     a pointer that point to the sei payload
+ *  \param size
+ *     the size of the sei message
+ *  \param p_Vid
+ *     the image pointer
+ *
+ ************************************************************************
+ */
+void interpret_nnpfc_info( byte* payload, int size, VideoParameters *p_Vid )
+{
+  Bitstream* buf;
+  NNPFCSEI seiNNPFC;
+  memset(&seiNNPFC, 0, sizeof(NNPFCSEI));
+  unsigned int i;
+  unsigned char term_char;
+
+  buf = malloc(sizeof(Bitstream));
+  if (!buf) no_mem_exit("interpret_nnpfc_info: Bitstream allocation");
+  buf->bitstream_length = size;
+  buf->streamBuffer = payload;
+  buf->frame_bitoffset = 0;
+  p_Dec->UsedBits = 0; 
+
+
+#ifdef PRINT_NNPFC_INFO
+  printf("NNPFC SEI message\n");
+#endif
+  seiNNPFC.nnpfc_purpose = read_u_v(16, "SEI: nnpfc_purpose", buf, &p_Dec->UsedBits);
+  seiNNPFC.nnpfc_id = read_ue_v("SEI: nnpfc_id", buf, &p_Dec->UsedBits);
+  seiNNPFC.nnpfc_base_flag = read_u_1("SEI: nnpfc_base_flag", buf, &p_Dec->UsedBits);
+  seiNNPFC.nnpfc_mode_idc = read_ue_v("SEI: nnpfc_mode_idc", buf, &p_Dec->UsedBits);
+
+#ifdef PRINT_NNPFC_INFO
+  printf("nnpfc_purpose = %u\n", seiNNPFC.nnpfc_purpose);
+  printf("nnpfc_id = %u\n", seiNNPFC.nnpfc_id);
+  printf("nnpfc_base_flag = %u\n", seiNNPFC.nnpfc_base_flag);
+  printf("nnpfc_mode_idc = %u\n", seiNNPFC.nnpfc_mode_idc);
+#endif
+  Boolean ChromaUpsamplingFlag = ( ( seiNNPFC.nnpfc_purpose & 0x02 ) > 0 ) ? TRUE : FALSE;
+  Boolean ResolutionResamplingFlag = ( ( seiNNPFC.nnpfc_purpose & 0x04 ) > 0 ) ? TRUE : FALSE;
+  Boolean PictureRateUpsamplingFlag = ( ( seiNNPFC.nnpfc_purpose & 0x08 ) > 0 ) ? TRUE : FALSE;
+  Boolean BitDepthUpsamplingFlag = ( ( seiNNPFC.nnpfc_purpose & 0x10 ) > 0 ) ? TRUE : FALSE;
+  Boolean ColourizationFlag = ( ( seiNNPFC.nnpfc_purpose & 0x20 ) > 0 ) ? TRUE : FALSE;
+  Boolean TemporalExtrapolationFlag = ( ( seiNNPFC.nnpfc_purpose & 0x40 ) > 0 ) ? TRUE : FALSE;
+  Boolean SpatialExtrapolationFlag = ( ( seiNNPFC.nnpfc_purpose & 0x80 ) > 0 ) ? TRUE : FALSE;
+
+  if (seiNNPFC.nnpfc_mode_idc == 1)
+  {
+    while (p_Dec->UsedBits % 8 != 0)
+    {
+      read_u_1("SEI: nnpfc_alignment_zero_bit_a", buf, &p_Dec->UsedBits);
+    }
+
+    i = 0;
+    do {
+        term_char = read_u_v(8, "SEI: nnpfc_tag_uri", buf, &p_Dec->UsedBits);
+        seiNNPFC.nnpfc_tag_uri[i++] = term_char;
+    } while (term_char != '\0' && i < 4095);
+    seiNNPFC.nnpfc_tag_uri[4095] = '\0';
+
+    i = 0;
+    do {
+        term_char = read_u_v(8, "SEI: nnpfc_uri", buf, &p_Dec->UsedBits);
+        seiNNPFC.nnpfc_uri[i++] = term_char;
+    } while (term_char != '\0' && i < 4095);
+    seiNNPFC.nnpfc_uri[4095] = '\0';
+
+#ifdef PRINT_NNPFC_INFO
+      printf("nnpfc_tag_uri = %s\n", seiNNPFC.nnpfc_tag_uri);
+      printf("nnpfc_uri = %s\n", seiNNPFC.nnpfc_uri);
+#endif
+  }
+
+  seiNNPFC.nnpfc_property_present_flag = read_u_1("SEI: nnpfc_property_present_flag", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+  printf("property_present_flag = %d\n", seiNNPFC.nnpfc_property_present_flag);
+#endif
+
+  if (seiNNPFC.nnpfc_property_present_flag)
+  {
+    seiNNPFC.nnpfc_num_input_pics_minus1 = read_ue_v("SEI: nnpfc_num_input_pics_minus1", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+    printf("nnpfc_num_input_pics_minus1 = %u\n", seiNNPFC.nnpfc_num_input_pics_minus1);
+#endif
+
+    if (seiNNPFC.nnpfc_num_input_pics_minus1 > 0)
+    {
+      seiNNPFC.nnpfc_input_pic_filtering_flag = malloc((seiNNPFC.nnpfc_num_input_pics_minus1 + 1) * sizeof(Boolean));
+      if (!seiNNPFC.nnpfc_input_pic_filtering_flag)
+          no_mem_exit("input_pic_filtering_flag");
+
+      for (i = 0; i <= seiNNPFC.nnpfc_num_input_pics_minus1; i++)
+      {
+          seiNNPFC.nnpfc_input_pic_filtering_flag[i] = read_u_1("SEI: input_pic_filtering_flag", buf, &p_Dec->UsedBits);
+      }
+
+      seiNNPFC.nnpfc_absent_input_pic_zero_flag = read_u_1("SEI: absent_input_pic_zero_flag", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+      printf("nnpfc_input_pic_filtering_flag =");
+      for (i = 0; i <= seiNNPFC.nnpfc_num_input_pics_minus1; i++)
+          printf(" %d", seiNNPFC.nnpfc_input_pic_filtering_flag[i]);
+      printf("\nnpfc_absent_input_pic_zero_flag = %d\n", seiNNPFC.nnpfc_absent_input_pic_zero_flag);
+#endif
+    }
+
+    if (ChromaUpsamplingFlag)
+    {
+      seiNNPFC.nnpfc_out_sub_c_flag = read_u_1("SEI: nnpfc_out_sub_c_flag", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+      printf("nnpfc_out_sub_c_flag = %d\n", seiNNPFC.nnpfc_out_sub_c_flag);
+#endif
+    }
+
+    if (ColourizationFlag)
+    {
+      seiNNPFC.nnpfc_out_colour_format_idc = read_u_v(2, "SEI: nnpfc_out_colour_format_idc", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+      printf("nnpfc_out_colour_format_idc = %u\n", seiNNPFC.nnpfc_out_colour_format_idc);
+#endif
+    }
+
+    if (ResolutionResamplingFlag)
+    {
+      seiNNPFC.nnpfc_pic_width_num_minus1 = read_ue_v("SEI: nnpfc_pic_width_num_minus1", buf, &p_Dec->UsedBits);
+      seiNNPFC.nnpfc_pic_width_denom_minus1 = read_ue_v("SEI: nnpfc_pic_width_denom_minus1", buf, &p_Dec->UsedBits);
+      seiNNPFC.nnpfc_pic_height_num_minus1 = read_ue_v("SEI: nnpfc_pic_height_num_minus1", buf, &p_Dec->UsedBits);
+      seiNNPFC.nnpfc_pic_height_denom_minus1 = read_ue_v("SEI: nnpfc_pic_height_denom_minus1", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+      printf("nnpfc_pic_width_num_minus1 = %u\nnnpfc_pic_width_denom_minus1 = %u\n", seiNNPFC.nnpfc_pic_width_num_minus1, seiNNPFC.nnpfc_pic_width_denom_minus1);
+      printf("nnpfc_pic_height_num_minus1 = %u\nnpfc_pic_height_denom_minus1 = %u\n", seiNNPFC.nnpfc_pic_height_num_minus1, seiNNPFC.nnpfc_pic_height_denom_minus1);
+#endif
+    }
+
+    if (PictureRateUpsamplingFlag){
+      seiNNPFC.nnpfc_interpolated_pics = malloc((seiNNPFC.nnpfc_num_input_pics_minus1 + 1) * sizeof(unsigned int));
+      if (!seiNNPFC.nnpfc_interpolated_pics)
+          no_mem_exit("nnpfc_interpolated_pics");
+      for (i = 0; i <= seiNNPFC.nnpfc_num_input_pics_minus1; i++)
+      {
+          seiNNPFC.nnpfc_interpolated_pics[i] = read_u_1("SEI: nnpfc_interpolated_pics", buf, &p_Dec->UsedBits);
+      }
+    }
+
+    if (TemporalExtrapolationFlag)
+    {
+      seiNNPFC.nnpfc_extrapolated_pics_minus1 = read_ue_v("SEI: nnpfc_extrapolated_pics_minus1", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+      printf("nnpfc_extrapolated_pics_minus1 = %u\n", seiNNPFC.nnpfc_extrapolated_pics_minus1);
+#endif
+    }
+
+    if (SpatialExtrapolationFlag)
+    {
+      seiNNPFC.nnpfc_spatial_extrapolation_left_offset = read_se_v("SEI: nnpfc_spatial_extrapolation_left_offset", buf, &p_Dec->UsedBits);
+      seiNNPFC.nnpfc_spatial_extrapolation_right_offset = read_se_v("SEI: nnpfc_spatial_extrapolation_right_offset", buf, &p_Dec->UsedBits);
+      seiNNPFC.nnpfc_spatial_extrapolation_top_offset = read_se_v("SEI: nnpfc_spatial_extrapolation_top_offset", buf, &p_Dec->UsedBits);
+      seiNNPFC.nnpfc_spatial_extrapolation_bottom_offset = read_se_v("SEI: nnpfc_spatial_extrapolation_bottom_offset", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+      printf("nnpfc_spatial_extrapolation_left_offset = %d\n", seiNNPFC.nnpfc_spatial_extrapolation_left_offset);
+      printf("nnpfc_spatial_extrapolation_right_offset = %d\n", seiNNPFC.nnpfc_spatial_extrapolation_right_offset);
+      printf("nnpfc_spatial_extrapolation_top_offset = %d\n", seiNNPFC.nnpfc_spatial_extrapolation_top_offset);
+      printf("nnpfc_spatial_extrapolation_bottom_offset = %d\n", seiNNPFC.nnpfc_spatial_extrapolation_bottom_offset);
+#endif
+    }
+
+    seiNNPFC.nnpfc_component_last_flag = read_u_1("SEI: nnpfc_component_last_flag", buf, &p_Dec->UsedBits);
+    seiNNPFC.nnpfc_inp_format_idc = read_ue_v("SEI: nnpfc_inp_format_idc", buf, &p_Dec->UsedBits);
+    seiNNPFC.nnpfc_auxiliary_inp_idc = read_ue_v("SEI: nnpfc_auxiliary_inp_idc", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+    printf("nnpfc_component_last_flag = %d\n", seiNNPFC.nnpfc_component_last_flag);
+    printf("nnpfc_inp_format_idc = %u\n", seiNNPFC.nnpfc_inp_format_idc);
+    printf("nnpfc_auxiliary_inp_idc = %u\n", seiNNPFC.nnpfc_auxiliary_inp_idc);
+#endif
+
+    if ((seiNNPFC.nnpfc_auxiliary_inp_idc & 0x2)>0)
+    {
+      seiNNPFC.nnpfc_inband_prompt_flag = read_u_1("SEI: nnpfc_inband_prompt_flag", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+      printf("nnpfc_inband_prompt_flag = %u\n", seiNNPFC.nnpfc_inband_prompt_flag);
+#endif
+      if (seiNNPFC.nnpfc_inband_prompt_flag)
+      {
+        while (p_Dec->UsedBits % 8 != 0)
+        {
+          read_u_1("SEI: nnpfc_alignment_zero_bit_c", buf, &p_Dec->UsedBits);
+        }
+
+        i = 0;
+        do {
+          term_char = read_u_v(8, "SEI: nnpfc_prompt", buf, &p_Dec->UsedBits);
+          seiNNPFC.nnpfc_prompt[i++] = term_char;
+        } while (term_char != '\0' && i < 4095);
+        seiNNPFC.nnpfc_prompt[4095] = '\0';
+#ifdef PRINT_NNPFC_INFO
+        printf("nnpfc_prompt = %s\n", seiNNPFC.nnpfc_prompt);
+#endif
+      }
+    }
+
+    if ((seiNNPFC.nnpfc_auxiliary_inp_idc & 0x4)>0) 
+    {
+      seiNNPFC.nnpfc_inband_seed_flag = read_u_1("SEI: nnpfc_inband_seed_flag", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+      printf("nnpfc_inband_seed_flag = %u\n", seiNNPFC.nnpfc_inband_seed_flag);
+#endif
+      if (seiNNPFC.nnpfc_inband_seed_flag)
+      {
+        seiNNPFC.nnpfc_seed = read_u_v(16, "SEI: nnpfc_seed", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+        printf("nnpfc_seed = %u\n", seiNNPFC.nnpfc_seed);
+#endif
+      }
+    }
+    seiNNPFC.nnpfc_inp_order_idc = read_ue_v("SEI: nnpfc_inp_order_idc", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+    printf("nnpfc_inp_order_idc = %u\n", seiNNPFC.nnpfc_inp_order_idc);
+#endif    
+    if(seiNNPFC.nnpfc_inp_format_idc==1){
+      if(seiNNPFC.nnpfc_inp_order_idc!=1){
+        seiNNPFC.nnpfc_inp_tensor_luma_bitdepth_minus8 = read_ue_v("SEI: nnpfc_inp_tensor_luma_bitdepth_minus8", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+        printf("nnpfc_inp_tensor_luma_bitdepth_minus8 = %u\n", seiNNPFC.nnpfc_inp_tensor_luma_bitdepth_minus8);
+#endif 
+      }
+      if(seiNNPFC.nnpfc_inp_order_idc>0){
+        seiNNPFC.nnpfc_inp_tensor_chroma_bitdepth_minus8 = read_ue_v("SEI: nnpfc_inp_tensor_chroma_bitdepth_minus8", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+        printf("nnpfc_inp_tensor_chroma_bitdepth_minus8 = %u\n", seiNNPFC.nnpfc_inp_tensor_chroma_bitdepth_minus8);
+#endif 
+      }
+    }
+
+    seiNNPFC.nnpfc_out_format_idc = read_ue_v("SEI: nnpfc_out_format_idc", buf, &p_Dec->UsedBits);
+    seiNNPFC.nnpfc_out_order_idc = read_ue_v("SEI: nnpfc_out_order_idc", buf, &p_Dec->UsedBits);
+    if(BitDepthUpsamplingFlag&&(seiNNPFC.nnpfc_out_format_idc!=1)){
+      error("When BitDepthUpsamplingFlag is equal to 1, the value of nnpfc_out_format_idc shall be equal to 1",500);
+    }
+#ifdef PRINT_NNPFC_INFO
+    printf("nnpfc_out_format_idc = %u\n", seiNNPFC.nnpfc_out_format_idc);
+    printf("nnpfc_out_order_idc = %u\n", seiNNPFC.nnpfc_out_order_idc);
+#endif    
+    if(seiNNPFC.nnpfc_out_format_idc==1){
+      if(seiNNPFC.nnpfc_out_order_idc!=1){
+        seiNNPFC.nnpfc_out_tensor_luma_bitdepth_minus8 = read_ue_v("SEI: nnpfc_out_tensor_luma_bitdepth_minus8", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+        printf("nnpfc_out_tensor_luma_bitdepth_minus8 = %u\n", seiNNPFC.nnpfc_out_tensor_luma_bitdepth_minus8);
+#endif 
+      }
+      if(seiNNPFC.nnpfc_out_order_idc>0){
+        seiNNPFC.nnpfc_out_tensor_chroma_bitdepth_minus8 = read_ue_v("SEI: nnpfc_out_tensor_chroma_bitdepth_minus8", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+        printf("nnpfc_out_tensor_chroma_bitdepth_minus8 = %u\n", seiNNPFC.nnpfc_out_tensor_chroma_bitdepth_minus8);
+#endif 
+      }
+    }
+
+    seiNNPFC.nnpfc_separate_colour_description_present_flag = read_u_1("SEI: nnpfc_separate_colour_description_present_flag", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+    printf("nnpfc_separate_colour_description_present_flag = %d\n", seiNNPFC.nnpfc_separate_colour_description_present_flag);
+#endif
+    if (seiNNPFC.nnpfc_separate_colour_description_present_flag)
+    {
+      seiNNPFC.nnpfc_colour_primaries = read_u_v(8, "SEI: nnpfc_colour_primaries", buf, &p_Dec->UsedBits);
+      seiNNPFC.nnpfc_transfer_characteristics = read_u_v(8, "SEI: nnpfc_transfer_characteristics", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+      printf("nnpfc_colour_primaries = %u\n", seiNNPFC.nnpfc_colour_primaries);
+      printf("nnpfc_transfer_characteristics = %u\n", seiNNPFC.nnpfc_transfer_characteristics);
+#endif
+      if (seiNNPFC.nnpfc_out_format_idc == 1)
+      {
+        seiNNPFC.nnpfc_matrix_coeffs = read_u_v(8, "SEI: matrix_coeffs", buf, &p_Dec->UsedBits);
+        seiNNPFC.nnpfc_full_range_flag = read_u_1("SEI: full_range_flag", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+        printf("nnpfc_matrix_coeffs = %u\n", seiNNPFC.nnpfc_matrix_coeffs);
+        printf("nnpfc_full_range_flag = %d\n", seiNNPFC.nnpfc_full_range_flag);
+#endif
+      }
+    }
+
+    if (seiNNPFC.nnpfc_out_order_idc > 0)
+    {
+      seiNNPFC.nnpfc_chroma_loc_present_flag = read_u_1("SEI: nnpfc_chroma_loc_present_flag", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+      printf("nnpfc_chroma_loc_present_flag = %d\n", seiNNPFC.nnpfc_chroma_loc_present_flag);
+      #endif
+    }
+    if (seiNNPFC.nnpfc_chroma_loc_present_flag)
+    {
+      seiNNPFC.nnpfc_chroma_sample_loc_type_frame = read_ue_v("SEI: nnpfc_chroma_sample_loc_type_frame", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+      printf("nnpfc_chroma_sample_loc_type_frame = %u\n", seiNNPFC.nnpfc_chroma_sample_loc_type_frame);
+#endif
+    }
+    if (!SpatialExtrapolationFlag)
+    {
+      seiNNPFC.nnpfc_overlap = read_ue_v("SEI: nnpfc_overlap", buf, &p_Dec->UsedBits);
+      seiNNPFC.nnpfc_constant_patch_size_flag = read_u_1("SEI: nnpfc_constant_patch_size_flag", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+      printf("nnpfc_overlap = %u\n", seiNNPFC.nnpfc_overlap);
+      printf("nnpfc_constant_patch_size_flag = %d\n", seiNNPFC.nnpfc_constant_patch_size_flag);
+#endif
+      if (seiNNPFC.nnpfc_constant_patch_size_flag)
+      {
+        seiNNPFC.nnpfc_patch_width_minus1 = read_ue_v("SEI: nnpfc_patch_width_minus1", buf, &p_Dec->UsedBits);
+        seiNNPFC.nnpfc_patch_height_minus1 = read_ue_v("SEI: nnpfc_patch_height_minus1", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+        printf("nnpfc_patch_width_minus1 = %u\n", seiNNPFC.nnpfc_patch_width_minus1);
+        printf("nnpfc_patch_height_minus1 = %u\n", seiNNPFC.nnpfc_patch_height_minus1);
+#endif
+      }
+      else
+      {
+        seiNNPFC.nnpfc_extended_patch_width_cd_delta_minus1 = read_ue_v("SEI: nnpfc_extended_patch_width_cd_delta_minus1", buf, &p_Dec->UsedBits);
+        seiNNPFC.nnpfc_extended_patch_height_cd_delta_minus1 = read_ue_v("SEI: nnpfc_extended_patch_height_cd_delta_minus1", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+        printf("nnpfc_extended_patch_width_cd_delta_minus1 = %u\n", seiNNPFC.nnpfc_extended_patch_width_cd_delta_minus1);
+        printf("nnpfc_extended_patch_height_cd_delta_minus1 = %u\n", seiNNPFC.nnpfc_extended_patch_height_cd_delta_minus1);
+#endif
+      }
+    }
+
+    seiNNPFC.nnpfc_padding_type = read_ue_v("SEI: nnpfc_padding_type", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+    printf("nnpfc_padding_type = %u\n", seiNNPFC.nnpfc_padding_type);
+#endif
+    if (seiNNPFC.nnpfc_padding_type == 4)
+    {
+      if (seiNNPFC.nnpfc_inp_order_idc != 1)
+      {
+        seiNNPFC.nnpfc_luma_padding_val = read_ue_v("SEI: nnpfc_luma_padding_val", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+        printf("nnpfc_luma_padding_val = %u\n", seiNNPFC.nnpfc_luma_padding_val);
+#endif
+      }
+      if (seiNNPFC.nnpfc_inp_order_idc != 0)
+      {
+        seiNNPFC.nnpfc_cb_padding_val = read_ue_v("SEI: nnpfc_cb_padding_val", buf, &p_Dec->UsedBits);
+        seiNNPFC.nnpfc_cr_padding_val = read_ue_v("SEI: nnpfc_cr_padding_val", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+        printf("nnpfc_cb_padding_val = %u\n", seiNNPFC.nnpfc_cb_padding_val);
+        printf("nnpfc_cr_padding_val = %u\n", seiNNPFC.nnpfc_cr_padding_val);
+#endif
+      }
+    }
+
+    seiNNPFC.nnpfc_complexity_info_flag = read_u_1("SEI: nnpfc_complexity_info_flag", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+    printf("nnpfc_complexity_info_flag = %d\n", seiNNPFC.nnpfc_complexity_info_flag);
+#endif
+    if (seiNNPFC.nnpfc_complexity_info_flag)
+    {
+      seiNNPFC.nnpfc_parameter_type_idc = read_u_v(2, "SEI: nnpfc_parameter_type_idc", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+      printf("nnpfc_parameter_type_idc = %u\n", seiNNPFC.nnpfc_parameter_type_idc);
+#endif      
+      if (seiNNPFC.nnpfc_parameter_type_idc != 2)
+      {
+        seiNNPFC.nnpfc_log2_parameter_bit_length_minus3 = read_u_v(2, "SEI: nnpfc_log2_parameter_bit_length_minus3", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+        printf("nnpfc_log2_parameter_bit_length_minus3 = %u\n", seiNNPFC.nnpfc_log2_parameter_bit_length_minus3);
+ #endif             
+      }
+      seiNNPFC.nnpfc_num_parameters_idc = read_u_v(6, "SEI: nnpfc_num_parameters_idc", buf, &p_Dec->UsedBits);
+      seiNNPFC.nnpfc_num_kmac_operations_idc = read_ue_v("SEI: nnpfc_num_kmac_operations_idc", buf, &p_Dec->UsedBits);
+      seiNNPFC.nnpfc_total_kilobyte_size = read_ue_v("SEI: nnpfc_total_kilobyte_size", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+      printf("nnpfc_num_parameters_idc = %u\n", seiNNPFC.nnpfc_num_parameters_idc);
+      printf("nnpfc_num_kmac_operations_idc = %u\n", seiNNPFC.nnpfc_num_kmac_operations_idc);
+      printf("nnpfc_total_kilobyte_size = %u\n", seiNNPFC.nnpfc_total_kilobyte_size);
+#endif
+    }
+
+    seiNNPFC.nnpfc_num_metadata_extension_bits = read_ue_v("SEI: nnpfc_num_metadata_extension_bits", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+    printf("nnpfc_num_metadata_extension_bits = %u\n", seiNNPFC.nnpfc_num_metadata_extension_bits);
+#endif
+    if (seiNNPFC.nnpfc_num_metadata_extension_bits > 0)
+    {
+      if (seiNNPFC.nnpfc_purpose == 0)
+      {
+        seiNNPFC.nnpfc_application_purpose_tag_uri_present_flag = read_u_1("SEI: nnpfc_application_purpose_tag_uri_present_flag", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+        printf("nnpfc_application_purpose_tag_uri_present_flag = %d\n", seiNNPFC.nnpfc_application_purpose_tag_uri_present_flag);
+#endif
+        if (seiNNPFC.nnpfc_application_purpose_tag_uri_present_flag)
+        {
+          while (p_Dec->UsedBits % 8 != 0)
+          {
+            read_u_1("SEI: metadata_alignment_zero_bit", buf, &p_Dec->UsedBits);
+          }
+                    
+          i = 0;
+          do {
+            term_char = read_u_v(8, "SEI: nnpfc_application_purpose_tag_uri", buf, &p_Dec->UsedBits);
+            seiNNPFC.nnpfc_application_purpose_tag_uri[i++] = term_char;
+          } while (term_char != '\0' && i < 4095);
+          seiNNPFC.nnpfc_application_purpose_tag_uri[4095] = '\0';
+#ifdef PRINT_NNPFC_INFO
+          printf("nnpfc_application_purpose_tag_uri = %s\n", seiNNPFC.nnpfc_application_purpose_tag_uri);
+#endif
+        }
+      }
+
+      if (SpatialExtrapolationFlag || ResolutionResamplingFlag)
+      {
+        seiNNPFC.nnpfc_scan_type_idc = read_u_v(2, "SEI: nnpfc_scan_type_idc", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+        printf("nnpfc_scan_type_idc = %u\n", seiNNPFC.nnpfc_scan_type_idc);
+#endif
+      }
+
+      seiNNPFC.nnpfc_for_human_viewing_idc = read_u_v(2, "SEI: nnpfc_for_human_viewing_idc", buf, &p_Dec->UsedBits);
+      seiNNPFC.nnpfc_for_machine_analysis_idc = read_u_v(2, "SEI: nnpfc_for_machine_analysis_idc", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFC_INFO
+      printf("nnpfc_for_human_viewing_idc = %u\n", seiNNPFC.nnpfc_for_human_viewing_idc);
+      printf("nnpfc_for_machine_analysis_idc = %u\n", seiNNPFC.nnpfc_for_machine_analysis_idc);
+#endif
+    }
+  } 
+
+  if (seiNNPFC.nnpfc_mode_idc == 0)
+  {
+    while (p_Dec->UsedBits % 8 != 0)
+    {
+      read_u_1("SEI: nnpfc_alignment_zero_bit_b", buf, &p_Dec->UsedBits);
+    }
+
+    seiNNPFC.nnpfc_payload_size = (8 * size - p_Dec->UsedBits) / 8;
+    if (seiNNPFC.nnpfc_payload_size > 0)
+    {
+      seiNNPFC.nnpfc_payload_byte = malloc(seiNNPFC.nnpfc_payload_size);
+      for (i = 0; i < seiNNPFC.nnpfc_payload_size; i++)
+      {
+        seiNNPFC.nnpfc_payload_byte[i] = read_u_v(8, "SEI: nnpfc_payload_byte", buf, &p_Dec->UsedBits);
+      }
+#ifdef PRINT_NNPFC_INFO
+      printf("nnpfc_payload_size = %u bytes\n", seiNNPFC.nnpfc_payload_size);
+#endif
+    }
+  }
+
+  if (p_Dec->UsedBits % 8 != 0)
+  {
+      fprintf(stderr, "interpret_nnpfc_info: %d bits left\n", 8 - (p_Dec->UsedBits % 8));
+  }
+#ifdef PRINT_NNPFC_INFO
+  printf("\n");
+#endif
+  free(buf);
+  if (seiNNPFC.nnpfc_input_pic_filtering_flag) free(seiNNPFC.nnpfc_input_pic_filtering_flag);
+  if (seiNNPFC.nnpfc_interpolated_pics) free(seiNNPFC.nnpfc_interpolated_pics);
+  if (seiNNPFC.nnpfc_payload_byte) free(seiNNPFC.nnpfc_payload_byte);
+
+}
+
+void clear_nnpfa(NNPFASEI* seiNNPFA){
+  seiNNPFA->nnpfa_target_id = 0;
+  seiNNPFA->nnpfa_cancel_flag = 0;
+  seiNNPFA->nnpfa_persistence_flag = 0;
+  seiNNPFA->nnpfa_target_base_flag = 0;
+  seiNNPFA->nnpfa_no_prev_clvs_flag = 0;
+  seiNNPFA->nnpfa_no_foll_clvs_flag = 0;
+  seiNNPFA->nnpfa_num_output_entries = 0;
+  seiNNPFA->nnpfa_prompt_update_flag = 0;
+  memset(seiNNPFA->nnpfa_prompt, 0, sizeof(seiNNPFA->nnpfa_prompt));
+  seiNNPFA->nnpfa_output_flag = NULL;
+  seiNNPFA->nnpfa_seed_update_flag = 0;
+  seiNNPFA->nnpfa_seed = 0;
+  seiNNPFA->nnpfa_num_input_pic_shift = 0;
+}
+
+/*!
+ ************************************************************************
+ *  \brief
+ *     Interpret the NNPFA SEI message
+ *  \param payload
+ *     a pointer that point to the sei payload
+ *  \param size
+ *     the size of the sei message
+ *  \param p_Vid
+ *     the image pointer
+ *
+ ************************************************************************
+ */
+void interpret_nnpfa_info( byte* payload, int size, VideoParameters *p_Vid )
+{
+  Bitstream* buf;
+  NNPFASEI seiNNPFA;
+  clear_nnpfa(&seiNNPFA);
+  unsigned int i;
+  unsigned int tmp;
+
+  buf = malloc(sizeof(Bitstream));
+  buf->bitstream_length = size;
+  buf->streamBuffer = payload;
+  buf->frame_bitoffset = 0;
+
+  p_Dec->UsedBits = 0;
+
+#ifdef PRINT_NNPFA_INFO
+  printf("NNPFA SEI message\n");
+#endif
+
+  seiNNPFA.nnpfa_target_id = read_ue_v("SEI: nnpfa_target_id", buf, &p_Dec->UsedBits);
+  seiNNPFA.nnpfa_cancel_flag = read_u_1("SEI: nnpfa_cancel_flag", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFA_INFO
+  printf("nnpfa_target_id = %u\n",seiNNPFA.nnpfa_target_id);
+  printf("nnpfa_cancel_flag = %u\n",seiNNPFA.nnpfa_cancel_flag);
+#endif
+  if(!seiNNPFA.nnpfa_cancel_flag){
+    seiNNPFA.nnpfa_persistence_flag = read_u_1("SEI: nnpfa_persistence_flag", buf, &p_Dec->UsedBits);
+    seiNNPFA.nnpfa_target_base_flag = read_u_1("SEI: nnpfa_target_base_flag", buf, &p_Dec->UsedBits);
+    seiNNPFA.nnpfa_no_prev_clvs_flag = read_u_1("SEI: nnpfa_no_prev_clvs_flag", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFA_INFO
+    printf("nnpfa_persistence_flag = %u\n",seiNNPFA.nnpfa_persistence_flag);
+    printf("nnpfa_target_base_flag = %u\n",seiNNPFA.nnpfa_target_base_flag);
+    printf("nnpfa_no_prev_clvs_flag = %u\n",seiNNPFA.nnpfa_no_prev_clvs_flag);
+#endif    
+    if (seiNNPFA.nnpfa_persistence_flag)
+    {
+      seiNNPFA.nnpfa_no_foll_clvs_flag = read_u_1("SEI: nnpfa_no_foll_clvs_flag", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFA_INFO
+      printf("nnpfa_no_foll_clvs_flag = %u\n",seiNNPFA.nnpfa_no_foll_clvs_flag);
+#endif
+    }
+    seiNNPFA.nnpfa_num_output_entries = read_ue_v("SEI: nnpfa_num_output_entries", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFA_INFO
+    printf("nnpfa_num_output_entries = %u\n",seiNNPFA.nnpfa_num_output_entries);
+#endif
+    seiNNPFA.nnpfa_output_flag = malloc(seiNNPFA.nnpfa_num_output_entries*sizeof(Boolean));
+    for (i = 0; i < seiNNPFA.nnpfa_num_output_entries; i++)
+    {
+      seiNNPFA.nnpfa_output_flag[i] = read_u_1("SEI: nnpfa_output_flag[i]", buf, &p_Dec->UsedBits);
+    }
+#ifdef PRINT_NNPFA_INFO
+    if(seiNNPFA.nnpfa_num_output_entries>0){
+      printf("nnpfa_output_flag =");
+      for (i = 0; i < seiNNPFA.nnpfa_num_output_entries; i++)
+      {
+        printf(" %u",seiNNPFA.nnpfa_output_flag[i]);
+      }
+      printf("\n");
+    }
+#endif
+    if(p_Dec->UsedBits<8*size){
+      seiNNPFA.nnpfa_prompt_update_flag = read_u_1("SEI: nnpfa_prompt_update_flag", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFA_INFO
+      printf("nnpfa_prompt_update_flag = %u\n",seiNNPFA.nnpfa_prompt_update_flag);
+#endif
+      if (seiNNPFA.nnpfa_prompt_update_flag)
+      {
+        while (!(p_Dec->UsedBits%8==0))
+        {
+          read_u_1("SEI: nnpfa_alignment_zero_bit", buf, &p_Dec->UsedBits);
+        }
+        i = 0;
+        do
+        {
+          tmp = read_u_v(8,"SEI: nnpfa_prompt", buf, &p_Dec->UsedBits);
+          seiNNPFA.nnpfa_prompt[i++] = tmp;
+        } while (tmp!='\0');
+#ifdef PRINT_NNPFA_INFO
+        printf("nnpfa_prompt = %s\n",seiNNPFA.nnpfa_prompt);
+#endif        
+      }
+      seiNNPFA.nnpfa_seed_update_flag = read_u_1("SEI: nnpfa_seed_update_flag", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFA_INFO
+      printf("nnpfa_seed_update_flag = %u\n",seiNNPFA.nnpfa_seed_update_flag);
+#endif         
+      if(seiNNPFA.nnpfa_seed_update_flag){
+        seiNNPFA.nnpfa_seed = read_u_v(16,"SEI: nnpfa_seed", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFA_INFO
+        printf("nnpfa_seed = %u\n",seiNNPFA.nnpfa_seed);
+#endif   
+      }
+      seiNNPFA.nnpfa_num_input_pic_shift = (unsigned char)read_ue_v("SEI: nnpfa_num_input_pic_shift", buf, &p_Dec->UsedBits);
+#ifdef PRINT_NNPFA_INFO
+      printf("nnpfa_num_input_pic_shift = %u\n",seiNNPFA.nnpfa_num_input_pic_shift);
+#endif         
+    }
+  }
+#ifdef PRINT_NNPFC_INFO
+  printf("\n");
+#endif
+  free (buf);
+  if (seiNNPFA.nnpfa_output_flag) free(seiNNPFA.nnpfa_output_flag);
+}
+#endif

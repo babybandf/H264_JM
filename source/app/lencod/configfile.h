@@ -449,7 +449,13 @@ Mapping Map[] = {
     // Tone mapping SEI cfg file
     {"ToneMappingSEIPresentFlag",&cfgparams.ToneMappingSEIPresentFlag,    0,   0.0,                       1,  0.0,              1.0,                             },
     {"ToneMappingFile",          &cfgparams.ToneMappingFile,              1,   0.0,                       0,  0.0,              0.0,             FILE_NAME_SIZE, },
-
+#if NNPF_ENABLE
+    // NNPFA SEI cfg file
+    {"NNPFASEIPresentFlag",&cfgparams.NNPFASEIPresentFlag,                0,   0.0,                       1,  0.0,              1.0,                             },
+    {"NNPFAFile",          &cfgparams.NNPFAFile,                          1,   0.0,                       0,  0.0,              0.0,             FILE_NAME_SIZE, },
+    {"NNPFCSEIPresentFlag",&cfgparams.NNPFCSEIPresentFlag,                0,   0.0,                       1,  0.0,              1.0,                             },
+    {"NNPFCFile",          &cfgparams.NNPFCFile,                          1,   0.0,                       0,  0.0,              0.0,             FILE_NAME_SIZE, },
+#endif
     {"SeparateColourPlane",      &cfgparams.separate_colour_plane_flag,   0,   0.0,                       1,  0.0,              1.0,                             },
     {"WeightY",                  &cfgparams.WeightY,                      2,   1.00,                      1,  0.0,              4.0,                             },
     {"WeightCb",                 &cfgparams.WeightCb,                     2,   1.00,                      1,  0.0,              4.0,                             },

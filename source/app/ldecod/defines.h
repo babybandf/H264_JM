@@ -68,6 +68,8 @@
 #define MCBUF_CHROMA_PAD_Y      8
 #define MAX_NUM_DPB_LAYERS      2
 
+#define NNPF_ENABLE             1     //!< JVET-AK2006 NNPFA and NNPFC SEI message
+
 //AVC Profile IDC definitions
 typedef enum {
   NO_PROFILE     =  0,       //!< disable profile checking for experimental coding (enables FRExt, but disables MV)

@@ -75,6 +75,8 @@
 #define HM50_LIKE_MMCO          1     ///!< use the HM-5.0 like MMCO, keep the identical referencing structure as HM-5.0
 #define LD_REF_SETTING          1     ///!< used for low delay setting, 1+X referencing structure, as proposed in JCTVC-F701
 
+#define NNPF_ENABLE             1     //!< JVET-AK2006 NNPFA and NNPFC SEI message
+
 
 //AVC Profile IDC definitions
 typedef enum {
