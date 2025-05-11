@@ -57,6 +57,75 @@ static void CloseModalityInfo(SEIParameters *p_SEI);
 static void FinalizeModalityInfo(SEIParameters *p_SEI);
 #endif
 
+#if GFV_ENABLE
+static void write_string(char *name, const char *str, Bitstream *bs);
+#if JVET_AJ0207_GFV_SEI
+static void InitGFV        (SEIParameters *p_SEI, InputParameters *p_Inp);
+static void ClearGFV       (SEIParameters *p_SEI);
+static void CloseGFV       (SEIParameters *p_SEI);
+static void FinalizeGFV    (SEIParameters *p_SEI, unsigned int gfv_idx);
+
+// Additional coordinate arrays from header file
+double* base_coordinate_x_rec = NULL;
+double* base_coordinate_y_rec = NULL;
+double* base_coordinate_z_rec = NULL;
+double* prev_coordinate_x_rec = NULL;
+double* prev_coordinate_y_rec = NULL;
+double* prev_coordinate_z_rec = NULL;
+
+// Additional matrix arrays from header file
+unsigned int* base_matrix_width_vec = NULL;
+unsigned int* base_matrix_height_vec = NULL;
+unsigned int* base_num_matrices_vec = NULL;
+
+// For matrix element
+double**** base_matrix_rec = NULL;
+double**** prev_matrix_rec = NULL;
+
+// For pred coding
+Boolean do_update_gfv_coordinate = TRUE;
+Boolean do_update_gfv_matrix = TRUE;
+
+// #define PRINT_GFV_INFO                             // uncomment to print GFV SEI info
+#endif
+
+#if JVET_AK0239_GFVE_SEI
+static void InitGFVE       (SEIParameters *p_SEI, InputParameters *p_Inp);
+static void ClearGFVE      (SEIParameters *p_SEI);
+static void CloseGFVE      (SEIParameters *p_SEI);
+static void FinalizeGFVE   (SEIParameters *p_SEI, unsigned int gfve_idx);
+
+// Additional matrix arrays from header file
+unsigned int* base_gfve_matrix_width_vec = NULL;
+unsigned int* base_gfve_matrix_height_vec = NULL;
+
+// For matrix element
+double*** base_gfve_matrix_rec = NULL;
+double*** prev_gfve_matrix_rec = NULL;
+
+// For pred coding
+unsigned int base_gfve_num_matrices = 0;
+unsigned int base_gfve_matrix_element_precision_factor = 0;
+Boolean do_update_gfve_matrix = TRUE;
+
+// For pupil prediction
+double base_gfve_left_pupil_coordinate_x = 0;
+double base_gfve_left_pupil_coordinate_y = 0;
+double base_gfve_right_pupil_coordinate_x = 0;
+double base_gfve_right_pupil_coordinate_y = 0;
+double prev_gfve_left_pupil_coordinate_x = 0;
+double prev_gfve_left_pupil_coordinate_y = 0;
+double prev_gfve_right_pupil_coordinate_x = 0;
+double prev_gfve_right_pupil_coordinate_y = 0;
+
+// For pupil pred coding
+Boolean check_base_pic_pupil_present_idx = FALSE;
+Boolean do_update_gfve_pupil_coordinate = TRUE;
+
+// #define PRINT_GFVE_INFO                             // uncomment to print GFVE SEI info
+#endif
+#endif
+
 void init_sei(SEIParameters *p_SEI)
 {
   p_SEI->seiHasTemporal_reference=FALSE;
@@ -85,6 +154,14 @@ void init_sei(SEIParameters *p_SEI)
   p_SEI->seiHasPanScanRectInfo = FALSE;
 #if JVET_AK0107_MODALITY_INFORMATION
   p_SEI->seiHasModalityInfo = FALSE;
+
+#if GFV_ENABLE
+#if JVET_AJ0207_GFV_SEI
+  p_SEI->seiHasGFV_info = FALSE;
+#endif
+#if JVET_AK0239_GFVE_SEI
+  p_SEI->seiHasGFVE_info = FALSE;
+#endif
 #endif
 }
 
@@ -139,6 +216,16 @@ void InitSEIMessages(VideoParameters *p_Vid, InputParameters *p_Inp)
 #if JVET_AK0107_MODALITY_INFORMATION
   // init Modality Information
   InitModalityInfo(p_SEI);
+
+#if GFV_ENABLE
+#if JVET_AJ0207_GFV_SEI
+  // init GFV Info
+  InitGFV(p_SEI, p_Inp);
+#endif
+#if JVET_AK0239_GFVE_SEI
+  // init GFVE Info
+  InitGFVE(p_SEI, p_Inp);
+#endif
 #endif
 }
 
@@ -165,6 +252,15 @@ void CloseSEIMessages(VideoParameters *p_Vid, InputParameters *p_Inp)
   CloseFramePackingArrangement(p_SEI);
 #if JVET_AK0107_MODALITY_INFORMATION
   CloseModalityInfo(p_SEI);
+#endif
+
+#if GFV_ENABLE
+#if JVET_AJ0207_GFV_SEI
+  CloseGFV(p_SEI);
+#endif
+#if JVET_AK0239_GFVE_SEI
+  CloseGFVE(p_SEI);
+#endif
 #endif
 
   for (i=0; i<MAX_LAYER_NUMBER; i++)
@@ -209,6 +305,17 @@ Boolean HaveAggregationSEI(VideoParameters *p_Vid)
 #if JVET_AK0107_MODALITY_INFORMATION
   if (p_SEI->seiHasModalityInfo)
     return TRUE;
+#endif
+
+#if GFV_ENABLE
+#if JVET_AJ0207_GFV_SEI
+  if (p_SEI->seiHasGFV_info)
+    return TRUE;
+#endif
+#if JVET_AK0239_GFVE_SEI
+  if (p_SEI->seiHasGFVE_info)
+    return TRUE;
+#endif
 #endif
 
   return FALSE;
@@ -3163,6 +3270,34 @@ void PrepareAggregationSEIMessage(VideoParameters *p_Vid)
   }
 #endif
 
+#if GFV_ENABLE
+#if JVET_AJ0207_GFV_SEI
+  if (p_SEI->seiHasGFV_info)
+  {
+    for (unsigned int gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+    {
+      FinalizeGFV(p_SEI, gfv_idx);
+      write_sei_message(p_SEI, AGGREGATION_SEI, p_SEI->seiGFV[gfv_idx].data->streamBuffer, p_SEI->seiGFV[gfv_idx].payloadSize, SEI_GENERATIVE_FACE_VIDEO);
+    }
+    has_aggregation_sei_message = TRUE;
+    ClearGFV(p_SEI);
+  }
+#endif
+
+#if JVET_AK0239_GFVE_SEI
+  if (p_SEI->seiHasGFVE_info)
+  {
+    for (unsigned int gfve_idx = 0; gfve_idx < p_SEI->gfve_num_sei; gfve_idx++)
+    {
+      FinalizeGFVE(p_SEI, gfve_idx);
+      write_sei_message(p_SEI, AGGREGATION_SEI, p_SEI->seiGFVE[gfve_idx].data->streamBuffer, p_SEI->seiGFVE[gfve_idx].payloadSize, SEI_GENERATIVE_FACE_VIDEO_ENHANCEMENT);
+    }
+    has_aggregation_sei_message = TRUE;
+    ClearGFVE(p_SEI);
+  }
+#endif
+#endif
+
   // after all the sei payload is written
   if (has_aggregation_sei_message)
   {
@@ -3192,3 +3327,3631 @@ void free_drpm_buffer( DecRefPicMarking_t *pDRPM )
   free( pTmp );
 }
 
+#if GFV_ENABLE
+// From NNPF: https://vcgit.hhi.fraunhofer.de/jvet/JM/-/merge_requests/12/, can be removed when NNPF is merged in
+static void write_string(char *name, const char *str, Bitstream *bs)
+{
+  for (int i=0; str[i]!='\0'; ++i)
+    write_u_v(8, name, str[i], bs);
+  write_u_v(8, name, '\0', bs); // NULL terminator
+}
+
+#if JVET_AJ0207_GFV_SEI
+/*
+ ************************************************************************
+ *  \functions on Generative Face Video (GFV) SEI message
+ *  \brief
+ *    Based on JVET-AJ0207
+ *  \author
+ *    Jing Yuan Thong                  <jingyuan.thong@sg.panasonic.com>
+ ************************************************************************
+ */
+
+static int ParseGFVConfigFile(SEIParameters *p_SEI, InputParameters *p_Inp, generative_face_video_struct *pSeiGFV)
+{
+  // loop counters
+  unsigned int gfv_idx;
+  unsigned int i, j, k, l;
+
+  // array buffers
+  int ret;
+  FILE* fp;
+  char buf[4096];
+  char temp[4096];
+  memset(temp, 0, sizeof(temp));
+  
+  // tmp int and double for reading from cfg file
+  unsigned int tmp_int;
+  double tmp_double;
+
+  // for matrix elements
+  unsigned int matrixWidth = 0;
+  unsigned int matrixHeight = 0;
+  unsigned int numMatrices = 0;
+
+  printf ("Parsing GFV cfg file %s ..........\n\n", p_Inp->GFVFile);
+  if ((fp = fopen(p_Inp->GFVFile, "r")) == NULL) 
+  {
+    fprintf(stderr, "GFV config file %s is not found, disable GFV SEI\n", p_Inp->GFVFile);
+    p_SEI->seiHasGFV_info = FALSE;
+    p_SEI->gfv_num_sei = 0;
+    return 1;
+  }
+
+  //read the GFV config file
+  while (fscanf(fp, "%s", buf) != EOF) 
+  {
+    ret = 1;
+    if (strcmp(buf, "gfv_number") == 0) 
+    {
+      ret = fscanf(fp, " = %u\n", &(p_SEI->gfv_num_sei));
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+      {
+        pSeiGFV[gfv_idx].gfv_number = p_SEI->gfv_num_sei;
+        pSeiGFV[gfv_idx].gfv_current_id = gfv_idx;
+      }
+#ifdef PRINT_GFV_INFO
+      printf("gfv_number = %u\n", pSeiGFV[0].gfv_number);
+      printf("ret = %u\n", ret);
+#endif
+    }
+    else if (strcmp(buf, "gfv_base_pic_flag") == 0) 
+    {
+      ret = fscanf(fp, " = %u\n", &tmp_int);
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+      {
+        pSeiGFV[gfv_idx].gfv_base_pic_flag = tmp_int ? TRUE : FALSE;
+      }
+#ifdef PRINT_GFV_INFO
+      printf("gfv_base_pic_flag = %u\n", tmp_int);
+      printf("ret = %u\n", ret);
+#endif
+    }
+    else if (strcmp(buf, "gfv_nn_present_flag") == 0) 
+    {
+      ret = fscanf(fp, " = %u\n", &tmp_int);
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+      {
+        pSeiGFV[gfv_idx].gfv_nn_present_flag = tmp_int ? TRUE : FALSE;
+      }
+#ifdef PRINT_GFV_INFO
+      printf("gfv_nn_present_flag = %u\n", tmp_int);
+      printf("ret = %u\n", ret);
+#endif
+    }
+    else if (strcmp(buf, "gfv_nn_mode_idc") == 0) {
+      ret = fscanf(fp, " = %u\n", &tmp_int);
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+      {
+        pSeiGFV[gfv_idx].gfv_nn_mode_idc = tmp_int;
+      }
+#ifdef PRINT_GFV_INFO
+      printf("gfv_nn_mode_idc = %u\n", tmp_int);
+      printf("ret = %u\n", ret);
+#endif
+    }
+    else if (strcmp(buf, "gfv_nn_tag_uri") == 0) {
+      ret = fscanf(fp, " = %s\n", temp);
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+      {
+        // prevent buffer overflow
+        strncpy(pSeiGFV[gfv_idx].gfv_nn_tag_uri, temp, sizeof(pSeiGFV[gfv_idx].gfv_nn_tag_uri) - 1);
+        pSeiGFV[gfv_idx].gfv_nn_tag_uri[sizeof(pSeiGFV[gfv_idx].gfv_nn_tag_uri) - 1] = '\0';
+      }
+#ifdef PRINT_GFV_INFO
+      printf("gfv_nn_tag_uri = %s\n", temp);
+      printf("ret = %u\n", ret);
+#endif
+      memset(temp, 0, sizeof(temp));
+    }
+    else if (strcmp(buf, "gfv_nn_uri") == 0) {
+      ret = fscanf(fp, " = %s\n", temp);
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+      {
+        // prevent buffer overflow
+        strncpy(pSeiGFV[gfv_idx].gfv_nn_uri, temp, sizeof(pSeiGFV[gfv_idx].gfv_nn_uri) - 1);
+        pSeiGFV[gfv_idx].gfv_nn_uri[sizeof(pSeiGFV[gfv_idx].gfv_nn_uri) - 1] = '\0';
+      }
+#ifdef PRINT_GFV_INFO
+      printf("gfv_nn_uri = %s\n", temp);
+      printf("ret = %u\n", ret);
+#endif
+      memset(temp, 0, sizeof(temp));
+    }
+    else if (strcmp(buf, "gfv_id") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVConfigFile: error parsing gfv_id", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFV_INFO
+      printf("gfv_id = ");
+#endif
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+      {
+        ret &= fscanf(fp, "%u", &(pSeiGFV[gfv_idx].gfv_id));
+#ifdef PRINT_GFV_INFO
+        printf("%u ", pSeiGFV[gfv_idx].gfv_id);
+#endif
+      }
+#ifdef PRINT_GFV_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfv_cnt") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVConfigFile: error parsing gfv_cnt", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFV_INFO
+      printf("gfv_cnt = ");
+#endif
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+      {
+        ret &= fscanf(fp, "%u", &(pSeiGFV[gfv_idx].gfv_cnt));
+#ifdef PRINT_GFV_INFO
+        printf("%u ", pSeiGFV[gfv_idx].gfv_cnt);
+#endif
+      }
+#ifdef PRINT_GFV_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfv_drive_pic_fusion_flag") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVConfigFile: error parsing gfv_drive_pic_fusion_flag", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFV_INFO
+      printf("gfv_drive_pic_fusion_flag = ");
+#endif
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+      {
+        ret &= fscanf(fp, "%u", &tmp_int);
+        pSeiGFV[gfv_idx].gfv_drive_pic_fusion_flag = tmp_int ? TRUE : FALSE;
+#ifdef PRINT_GFV_INFO
+        printf("%u ", pSeiGFV[gfv_idx].gfv_drive_pic_fusion_flag);
+#endif
+      }
+#ifdef PRINT_GFV_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfv_low_confidence_face_parameter_flag") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVConfigFile: error parsing gfv_low_confidence_face_parameter_flag", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFV_INFO
+      printf("gfv_low_confidence_face_parameter_flag = ");
+#endif
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+      {
+        ret &= fscanf(fp, "%u", &tmp_int);
+        pSeiGFV[gfv_idx].gfv_low_confidence_face_parameter_flag = tmp_int ? TRUE : FALSE;
+#ifdef PRINT_GFV_INFO
+        printf("%u ", pSeiGFV[gfv_idx].gfv_low_confidence_face_parameter_flag);
+#endif
+      }
+#ifdef PRINT_GFV_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfv_chroma_key_info_present_flag") == 0) 
+    {
+      ret = fscanf(fp, " = %u\n", &tmp_int);
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+      {
+        pSeiGFV[gfv_idx].gfv_chroma_key_info_present_flag = tmp_int ? TRUE : FALSE;
+      }
+#ifdef PRINT_GFV_INFO
+      printf("gfv_chroma_key_info_present_flag = %u\n", pSeiGFV[0].gfv_chroma_key_info_present_flag);
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfv_chroma_key_value_present_flag") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVConfigFile: error parsing gfv_chroma_key_value_present_flag", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFV_INFO
+      printf("gfv_chroma_key_value_present_flag = ");
+#endif
+      for (i = 0; i < 3; i++)
+      {
+        ret &= fscanf(fp, "%u", &tmp_int);
+        for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+        {
+          pSeiGFV[gfv_idx].gfv_chroma_key_value_present_flag[i] = tmp_int ? TRUE : FALSE;
+        }
+#ifdef PRINT_GFV_INFO
+        printf("%u ", tmp_int);
+#endif
+      }
+#ifdef PRINT_GFV_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfv_chroma_key_value") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVConfigFile: error parsing gfv_chroma_key_value", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFV_INFO
+      printf("gfv_chroma_key_value = ");
+#endif
+      for (i = 0; i < 3; i++)
+      {
+        ret &= fscanf(fp, "%u", &tmp_int);
+        for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+        {
+          pSeiGFV[gfv_idx].gfv_chroma_key_value[i] = tmp_int;
+        }
+#ifdef PRINT_GFV_INFO
+        printf("%u ", tmp_int);
+#endif
+      }
+#ifdef PRINT_GFV_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfv_chroma_key_thr_present_flag") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVConfigFile: error parsing gfv_chroma_key_thr_present_flag", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFV_INFO
+      printf("gfv_chroma_key_thr_present_flag = ");
+#endif
+      for (i = 0; i < 2; i++)
+      {
+        ret &= fscanf(fp, "%u", &tmp_int);
+        for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+        {
+          pSeiGFV[gfv_idx].gfv_chroma_key_thr_present_flag[i] = tmp_int ? TRUE : FALSE;
+        }
+#ifdef PRINT_GFV_INFO
+        printf("%u ", tmp_int);
+#endif
+      }
+#ifdef PRINT_GFV_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfv_chroma_key_thr_value") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVConfigFile: error parsing gfv_chroma_key_thr_value", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFV_INFO
+      printf("gfv_chroma_key_thr_value = ");
+#endif
+      for (i = 0; i < 2; i++)
+      {
+        ret &= fscanf(fp, "%u", &tmp_int);
+        for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+        {
+          pSeiGFV[gfv_idx].gfv_chroma_key_thr_value[i] = tmp_int;
+        }
+#ifdef PRINT_GFV_INFO
+        printf("%u ", tmp_int);
+#endif
+      }
+#ifdef PRINT_GFV_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfv_coordinate_present_flag") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVConfigFile: error parsing gfv_coordinate_present_flag", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFV_INFO
+      printf("gfv_coordinate_present_flag = ");
+#endif
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+      {
+        ret &= fscanf(fp, "%u", &tmp_int);
+        pSeiGFV[gfv_idx].gfv_coordinate_present_flag = tmp_int ? TRUE : FALSE;
+#ifdef PRINT_GFV_INFO
+        printf("%u ", pSeiGFV[gfv_idx].gfv_coordinate_present_flag);
+#endif
+      }
+#ifdef PRINT_GFV_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfv_coordinate_pred_flag") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVConfigFile: error parsing gfv_coordinate_pred_flag", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFV_INFO
+      printf("gfv_coordinate_pred_flag = ");
+#endif
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+      {
+        ret &= fscanf(fp, "%u", &tmp_int);
+        pSeiGFV[gfv_idx].gfv_coordinate_pred_flag = tmp_int ? TRUE : FALSE;
+#ifdef PRINT_GFV_INFO
+        printf("%u ", pSeiGFV[gfv_idx].gfv_coordinate_pred_flag);
+#endif
+      }
+#ifdef PRINT_GFV_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfv_coordinate_quantization_factor") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVConfigFile: error parsing gfv_coordinate_quantization_factor", 500);
+      }
+      ret = 1;
+ #ifdef PRINT_GFV_INFO
+      printf("gfv_coordinate_quantization_factor = ");
+#endif
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+      {
+        ret &= fscanf(fp, "%u", &(pSeiGFV[gfv_idx].gfv_coordinate_quantization_factor));
+#ifdef PRINT_GFV_INFO
+        printf("%u ", pSeiGFV[gfv_idx].gfv_coordinate_quantization_factor);
+#endif
+      }
+#ifdef PRINT_GFV_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfv_coordinate_point_num") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVConfigFile: error parsing gfv_coordinate_point_num", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFV_INFO
+      printf("gfv_coordinate_point_num = ");
+#endif
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+      {
+        ret &= fscanf(fp, "%u", &(pSeiGFV[gfv_idx].gfv_coordinate_point_num));
+        if (pSeiGFV[gfv_idx].gfv_coordinate_present_flag && pSeiGFV[gfv_idx].gfv_coordinate_point_num > 0)
+        {
+          pSeiGFV[gfv_idx].gfv_coordinate_x = calloc((pSeiGFV[gfv_idx].gfv_coordinate_point_num), sizeof(double));
+          if (!pSeiGFV[gfv_idx].gfv_coordinate_x) {
+            no_mem_exit("ParseGFVConfigFile: alloc gfv_coordinate_x");
+          }
+          pSeiGFV[gfv_idx].gfv_coordinate_y = calloc((pSeiGFV[gfv_idx].gfv_coordinate_point_num), sizeof(double));
+          if (!pSeiGFV[gfv_idx].gfv_coordinate_y) {
+            no_mem_exit("ParseGFVConfigFile: alloc gfv_coordinate_y");
+          }
+          if (pSeiGFV[gfv_idx].gfv_3d_coordinate_flag && !pSeiGFV[gfv_idx].gfv_coordinate_z)
+          {
+            pSeiGFV[gfv_idx].gfv_coordinate_z = calloc((pSeiGFV[gfv_idx].gfv_coordinate_point_num), sizeof(double));
+            if (!pSeiGFV[gfv_idx].gfv_coordinate_z) {
+              no_mem_exit("ParseGFVConfigFile: alloc gfv_coordinate_z");
+            }
+          }
+        }
+#ifdef PRINT_GFV_INFO
+        printf("%u ", pSeiGFV[gfv_idx].gfv_coordinate_point_num);
+#endif
+      }
+#ifdef PRINT_GFV_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfv_3d_coordinate_flag") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVConfigFile: error parsing gfv_3d_coordinate_flag", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFV_INFO
+      printf("gfv_3d_coordinate_flag = ");
+#endif
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+      {
+        ret &= fscanf(fp, "%u", &tmp_int);
+        pSeiGFV[gfv_idx].gfv_3d_coordinate_flag = tmp_int ? TRUE : FALSE;
+        if (pSeiGFV[gfv_idx].gfv_coordinate_present_flag && pSeiGFV[gfv_idx].gfv_coordinate_point_num > 0 && pSeiGFV[gfv_idx].gfv_3d_coordinate_flag && !pSeiGFV[gfv_idx].gfv_coordinate_z)
+        {
+          pSeiGFV[gfv_idx].gfv_coordinate_z = calloc((pSeiGFV[gfv_idx].gfv_coordinate_point_num), sizeof(double));
+          if (!pSeiGFV[gfv_idx].gfv_coordinate_z) {
+            no_mem_exit("ParseGFVConfigFile: alloc gfv_coordinate_z");
+          }
+        }
+#ifdef PRINT_GFV_INFO
+        printf("%u ", pSeiGFV[gfv_idx].gfv_3d_coordinate_flag);
+#endif
+      }
+#ifdef PRINT_GFV_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfv_coordinate_z_max_value") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVConfigFile: error parsing gfv_coordinate_z_max_value", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFV_INFO
+      printf("gfv_coordinate_z_max_value = ");
+#endif
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+      {
+        ret &= fscanf(fp, "%u", &(pSeiGFV[gfv_idx].gfv_coordinate_z_max_value));
+#ifdef PRINT_GFV_INFO
+        printf("%u ", pSeiGFV[gfv_idx].gfv_coordinate_z_max_value);
+#endif
+      }
+#ifdef PRINT_GFV_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfv_coordinate_x") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVConfigFile: error parsing gfv_coordinate_x", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFV_INFO
+      printf("gfv_coordinate_x = ");
+#endif
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+      {
+        if (pSeiGFV[gfv_idx].gfv_coordinate_present_flag)
+        {
+          for (i = 0; i < pSeiGFV[gfv_idx].gfv_coordinate_point_num; i++)
+          {
+            ret &= fscanf(fp, "%lf", &tmp_double);
+            pSeiGFV[gfv_idx].gfv_coordinate_x[i] = tmp_double;
+#ifdef PRINT_GFV_INFO
+            printf("%lf ", pSeiGFV[gfv_idx].gfv_coordinate_x[i]);
+#endif
+          }
+        }
+      }
+#ifdef PRINT_GFV_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfv_coordinate_y") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVConfigFile: error parsing gfv_coordinate_y", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFV_INFO
+      printf("gfv_coordinate_y = ");
+#endif
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+      {
+        if (pSeiGFV[gfv_idx].gfv_coordinate_present_flag)
+        {
+          for (i = 0; i < pSeiGFV[gfv_idx].gfv_coordinate_point_num; i++)
+          {
+            ret &= fscanf(fp, "%lf", &tmp_double);
+            pSeiGFV[gfv_idx].gfv_coordinate_y[i] = tmp_double;
+#ifdef PRINT_GFV_INFO
+            printf("%lf ", pSeiGFV[gfv_idx].gfv_coordinate_y[i]);
+#endif
+          }
+        }
+      }
+#ifdef PRINT_GFV_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfv_coordinate_z") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVConfigFile: error parsing gfv_coordinate_z", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFV_INFO
+      printf("gfv_coordinate_z = ");
+#endif
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+      {
+        if (pSeiGFV[gfv_idx].gfv_coordinate_present_flag && pSeiGFV[gfv_idx].gfv_3d_coordinate_flag)
+        {
+          for (i = 0; i < pSeiGFV[gfv_idx].gfv_coordinate_point_num; i++)
+          {
+            ret &= fscanf(fp, "%lf", &tmp_double);
+            pSeiGFV[gfv_idx].gfv_coordinate_z[i] = tmp_double;
+#ifdef PRINT_GFV_INFO
+            printf("%lf ", pSeiGFV[gfv_idx].gfv_coordinate_z[i]);
+#endif
+          }
+        }
+      }
+#ifdef PRINT_GFV_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfv_matrix_present_flag") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVConfigFile: error parsing gfv_matrix_present_flag", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFV_INFO
+      printf("gfv_matrix_present_flag = ");
+#endif
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+      {
+        ret &= fscanf(fp, "%u", &tmp_int);
+        pSeiGFV[gfv_idx].gfv_matrix_present_flag = tmp_int ? TRUE : FALSE;
+#ifdef PRINT_GFV_INFO
+        printf("%u ", pSeiGFV[gfv_idx].gfv_matrix_present_flag);
+#endif
+      }
+#ifdef PRINT_GFV_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfv_matrix_pred_flag") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVConfigFile: error parsing gfv_matrix_pred_flag", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFV_INFO
+      printf("gfv_matrix_pred_flag = ");
+#endif
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+      {
+        ret &= fscanf(fp, "%u", &tmp_int);
+        pSeiGFV[gfv_idx].gfv_matrix_pred_flag = tmp_int ? TRUE : FALSE;
+#ifdef PRINT_GFV_INFO
+        printf("%u ", pSeiGFV[gfv_idx].gfv_matrix_pred_flag);
+#endif
+      }
+#ifdef PRINT_GFV_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfv_matrix_element_precision_factor") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVConfigFile: error parsing gfv_matrix_element_precision_factor", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFV_INFO
+      printf("gfv_matrix_element_precision_factor = ");
+#endif
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+      {
+        ret &= fscanf(fp, "%u", &(pSeiGFV[gfv_idx].gfv_matrix_element_precision_factor));
+#ifdef PRINT_GFV_INFO
+        printf("%u ", pSeiGFV[gfv_idx].gfv_matrix_element_precision_factor);
+#endif
+      }
+#ifdef PRINT_GFV_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfv_num_matrix_type") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVConfigFile: error parsing gfv_num_matrix_type", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFV_INFO
+      printf("gfv_num_matrix_type = ");
+#endif
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+      {
+        ret &= fscanf(fp, "%u", &(pSeiGFV[gfv_idx].gfv_num_matrix_type));
+#ifdef PRINT_GFV_INFO
+        printf("%u ", pSeiGFV[gfv_idx].gfv_num_matrix_type);
+#endif
+        if (pSeiGFV[gfv_idx].gfv_matrix_present_flag && pSeiGFV[gfv_idx].gfv_num_matrix_type > 0)
+        {
+          pSeiGFV[gfv_idx].gfv_matrix_type_idx = calloc((pSeiGFV[gfv_idx].gfv_num_matrix_type), sizeof(unsigned int));
+          if (!pSeiGFV[gfv_idx].gfv_matrix_type_idx) {
+            no_mem_exit("ParseGFVConfigFile: alloc gfv_matrix_type_idx");
+          }
+          pSeiGFV[gfv_idx].gfv_num_matrices_to_num_kps_flag = calloc((pSeiGFV[gfv_idx].gfv_num_matrix_type), sizeof(unsigned int));
+          if (!pSeiGFV[gfv_idx].gfv_num_matrices_to_num_kps_flag) {
+            no_mem_exit("ParseGFVConfigFile: alloc gfv_num_matrices_to_num_kps_flag");
+          }
+          pSeiGFV[gfv_idx].gfv_num_matrices_info = calloc((pSeiGFV[gfv_idx].gfv_num_matrix_type), sizeof(unsigned int));
+          if (!pSeiGFV[gfv_idx].gfv_num_matrices_info) {
+            no_mem_exit("ParseGFVConfigFile: alloc gfv_num_matrices_info");
+          }
+          pSeiGFV[gfv_idx].gfv_matrix_3D_space_flag = calloc((pSeiGFV[gfv_idx].gfv_num_matrix_type), sizeof(unsigned int));
+          if (!pSeiGFV[gfv_idx].gfv_matrix_3D_space_flag) {
+            no_mem_exit("ParseGFVConfigFile: alloc gfv_matrix_3D_space_flag");
+          }
+          pSeiGFV[gfv_idx].gfv_num_matrices = calloc((pSeiGFV[gfv_idx].gfv_num_matrix_type), sizeof(unsigned int));
+          if (!pSeiGFV[gfv_idx].gfv_num_matrices) {
+            no_mem_exit("ParseGFVConfigFile: alloc gfv_num_matrices");
+          }
+          pSeiGFV[gfv_idx].gfv_matrix_width = calloc((pSeiGFV[gfv_idx].gfv_num_matrix_type), sizeof(unsigned int));
+          if (!pSeiGFV[gfv_idx].gfv_matrix_width) {
+            no_mem_exit("ParseGFVConfigFile: alloc gfv_matrix_width");
+          }
+          pSeiGFV[gfv_idx].gfv_matrix_height = calloc((pSeiGFV[gfv_idx].gfv_num_matrix_type), sizeof(unsigned int));
+          if (!pSeiGFV[gfv_idx].gfv_matrix_height) {
+            no_mem_exit("ParseGFVConfigFile: alloc gfv_matrix_height");
+          }
+          pSeiGFV[gfv_idx].gfv_num_matrices_store = calloc((pSeiGFV[gfv_idx].gfv_num_matrix_type), sizeof(unsigned int));
+          if (!pSeiGFV[gfv_idx].gfv_num_matrices_store) {
+            no_mem_exit("ParseGFVConfigFile: alloc gfv_num_matrices_store");
+          }
+          pSeiGFV[gfv_idx].gfv_matrix_width_store = calloc((pSeiGFV[gfv_idx].gfv_num_matrix_type), sizeof(unsigned int));
+          if (!pSeiGFV[gfv_idx].gfv_matrix_width_store) {
+            no_mem_exit("ParseGFVConfigFile: alloc gfv_matrix_width_store");
+          }
+          pSeiGFV[gfv_idx].gfv_matrix_height_store = calloc((pSeiGFV[gfv_idx].gfv_num_matrix_type), sizeof(unsigned int));
+          if (!pSeiGFV[gfv_idx].gfv_matrix_height_store) {
+            no_mem_exit("ParseGFVConfigFile: alloc gfv_matrix_height_store");
+          }
+          pSeiGFV[gfv_idx].gfv_matrix_element = (double****) calloc((pSeiGFV[gfv_idx].gfv_num_matrix_type), sizeof(double***));
+          if (!pSeiGFV[gfv_idx].gfv_matrix_element) {
+            no_mem_exit("ParseGFVConfigFile: alloc gfv_matrix_element");
+          }
+        }
+      }
+#ifdef PRINT_GFV_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfv_matrix_type_idx") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVConfigFile: error parsing gfv_matrix_type_idx", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFV_INFO
+      printf("gfv_matrix_type_idx = ");
+#endif
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+      {
+        if (pSeiGFV[gfv_idx].gfv_matrix_present_flag)
+        {
+          for (i = 0; i < pSeiGFV[gfv_idx].gfv_num_matrix_type; i++)
+          {
+            ret &= fscanf(fp, "%u", &tmp_int);
+            pSeiGFV[gfv_idx].gfv_matrix_type_idx[i] = tmp_int;
+#ifdef PRINT_GFV_INFO
+            printf("%u ", pSeiGFV[gfv_idx].gfv_matrix_type_idx[i]);
+#endif
+          }
+        }
+      }
+#ifdef PRINT_GFV_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfv_num_matrices_to_num_kps_flag") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVConfigFile: error parsing gfv_num_matrices_to_num_kps_flag", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFV_INFO
+      printf("gfv_num_matrices_to_num_kps_flag = ");
+#endif
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+      {
+        if (pSeiGFV[gfv_idx].gfv_matrix_present_flag)
+        {
+          ret &= fscanf(fp, "%u", &tmp_int);
+          for (i = 0; i < pSeiGFV[gfv_idx].gfv_num_matrix_type; i++)
+          {
+            pSeiGFV[gfv_idx].gfv_num_matrices_to_num_kps_flag[i] = tmp_int ? TRUE : FALSE;
+#ifdef PRINT_GFV_INFO
+            printf("%u ", pSeiGFV[gfv_idx].gfv_num_matrices_to_num_kps_flag[i]);
+#endif
+          }
+        }
+      }
+#ifdef PRINT_GFV_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfv_num_matrices_info") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVConfigFile: error parsing gfv_num_matrices_info", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFV_INFO
+      printf("gfv_num_matrices_info = ");
+#endif
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+      {
+        if (pSeiGFV[gfv_idx].gfv_matrix_present_flag)
+        {
+          ret &= fscanf(fp, "%u", &tmp_int);
+          for (i = 0; i < pSeiGFV[gfv_idx].gfv_num_matrix_type; i++)
+          {
+            pSeiGFV[gfv_idx].gfv_num_matrices_info[i] = tmp_int;
+#ifdef PRINT_GFV_INFO
+            printf("%u ", pSeiGFV[gfv_idx].gfv_num_matrices_info[i]);
+#endif
+          }
+        }
+      }
+#ifdef PRINT_GFV_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfv_matrix_3D_space_flag") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVConfigFile: error parsing gfv_matrix_3D_space_flag", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFV_INFO
+      printf("gfv_matrix_3D_space_flag = ");
+#endif
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+      {
+        if (pSeiGFV[gfv_idx].gfv_matrix_present_flag)
+        {
+          ret &= fscanf(fp, "%u", &tmp_int);
+          for (i = 0; i < pSeiGFV[gfv_idx].gfv_num_matrix_type; i++)
+          {
+            pSeiGFV[gfv_idx].gfv_matrix_3D_space_flag[i] = tmp_int ? TRUE : FALSE;
+#ifdef PRINT_GFV_INFO
+            printf("%u ", pSeiGFV[gfv_idx].gfv_matrix_3D_space_flag[i]);
+#endif
+          }
+        }
+      }
+#ifdef PRINT_GFV_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfv_num_matrices") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVConfigFile: error parsing gfv_num_matrices", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFV_INFO
+      printf("gfv_num_matrices = ");
+#endif
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+      {
+        if (pSeiGFV[gfv_idx].gfv_matrix_present_flag)
+        {
+          for (i = 0; i < pSeiGFV[gfv_idx].gfv_num_matrix_type; i++)
+          {
+            ret &= fscanf(fp, "%u", &tmp_int);
+            pSeiGFV[gfv_idx].gfv_num_matrices[i] = tmp_int;
+#ifdef PRINT_GFV_INFO
+            printf("%u ", pSeiGFV[gfv_idx].gfv_num_matrices[i]);
+#endif
+            if (pSeiGFV[gfv_idx].gfv_matrix_type_idx[i] == 0 || pSeiGFV[gfv_idx].gfv_matrix_type_idx[i] == 1) 
+            {
+              if (pSeiGFV[gfv_idx].gfv_coordinate_present_flag)
+              {
+                numMatrices = pSeiGFV[gfv_idx].gfv_num_matrices_to_num_kps_flag[i] ? pSeiGFV[gfv_idx].gfv_coordinate_point_num : (pSeiGFV[gfv_idx].gfv_num_matrices_info[i] < (pSeiGFV[gfv_idx].gfv_coordinate_point_num - 1) ? (pSeiGFV[gfv_idx].gfv_num_matrices_info[i] + 1) : (pSeiGFV[gfv_idx].gfv_num_matrices_info[i] + 2));
+              } 
+              else 
+              {
+                numMatrices = pSeiGFV[gfv_idx].gfv_num_matrices_info[i] + 1;
+              }
+            }
+            else if (pSeiGFV[gfv_idx].gfv_matrix_type_idx[i] >= 2 && pSeiGFV[gfv_idx].gfv_matrix_type_idx[i] < 7)
+            {
+                numMatrices = 1;
+            }
+            else
+            {
+                numMatrices = pSeiGFV[gfv_idx].gfv_num_matrices[i];
+            }
+            pSeiGFV[gfv_idx].gfv_num_matrices_store[i] = numMatrices;
+#ifdef PRINT_GFV_INFO
+            printf("(%u) ", pSeiGFV[gfv_idx].gfv_num_matrices_store[i]);
+#endif
+          }
+        }
+      }
+#ifdef PRINT_GFV_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfv_matrix_width") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVConfigFile: error parsing gfv_matrix_width", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFV_INFO
+      printf("gfv_matrix_width = ");
+#endif
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+      {
+        if (pSeiGFV[gfv_idx].gfv_matrix_present_flag)
+        {
+          for (i = 0; i < pSeiGFV[gfv_idx].gfv_num_matrix_type; i++)
+          {
+            ret &= fscanf(fp, "%u", &tmp_int);
+            pSeiGFV[gfv_idx].gfv_matrix_width[i] = tmp_int;
+#ifdef PRINT_GFV_INFO
+            printf("%u ", pSeiGFV[gfv_idx].gfv_matrix_width[i]);
+#endif
+            if (pSeiGFV[gfv_idx].gfv_matrix_type_idx[i] == 0 || pSeiGFV[gfv_idx].gfv_matrix_type_idx[i] == 1) 
+            {
+              matrixWidth = pSeiGFV[gfv_idx].gfv_3d_coordinate_flag + 2;
+            }
+            else if (pSeiGFV[gfv_idx].gfv_matrix_type_idx[i] == 4)
+            {
+              matrixWidth = (pSeiGFV[gfv_idx].gfv_coordinate_present_flag ? pSeiGFV[gfv_idx].gfv_3d_coordinate_flag : pSeiGFV[gfv_idx].gfv_matrix_3D_space_flag[i]) + 2;
+            }
+            else if (pSeiGFV[gfv_idx].gfv_matrix_type_idx[i] == 5 || pSeiGFV[gfv_idx].gfv_matrix_type_idx[i] == 6)
+            {
+              matrixWidth = 1;
+            }
+            else
+            {
+              matrixWidth = pSeiGFV[gfv_idx].gfv_matrix_width[i];
+            }
+            pSeiGFV[gfv_idx].gfv_matrix_width_store[i] = matrixWidth;
+#ifdef PRINT_GFV_INFO
+            printf("(%u) ", pSeiGFV[gfv_idx].gfv_matrix_width_store[i]);
+#endif
+          }
+        }
+      }
+#ifdef PRINT_GFV_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfv_matrix_height") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVConfigFile: error parsing gfv_matrix_height", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFV_INFO
+      printf("gfv_matrix_height = ");
+#endif
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+      {
+        if (pSeiGFV[gfv_idx].gfv_matrix_present_flag)
+        {
+          for (i = 0; i < pSeiGFV[gfv_idx].gfv_num_matrix_type; i++)
+          {
+            ret &= fscanf(fp, "%u", &tmp_int);
+            pSeiGFV[gfv_idx].gfv_matrix_height[i] = tmp_int;
+#ifdef PRINT_GFV_INFO
+            printf("%u ", pSeiGFV[gfv_idx].gfv_matrix_height[i]);
+#endif
+            if (pSeiGFV[gfv_idx].gfv_matrix_type_idx[i] == 0 || pSeiGFV[gfv_idx].gfv_matrix_type_idx[i] == 1) 
+            {
+              matrixHeight = pSeiGFV[gfv_idx].gfv_3d_coordinate_flag + 2;
+            }
+            else if (pSeiGFV[gfv_idx].gfv_matrix_type_idx[i] >= 4 && pSeiGFV[gfv_idx].gfv_matrix_type_idx[i] <= 6)
+            {
+              matrixHeight = (pSeiGFV[gfv_idx].gfv_coordinate_present_flag ? pSeiGFV[gfv_idx].gfv_3d_coordinate_flag : pSeiGFV[gfv_idx].gfv_matrix_3D_space_flag[i]) + 2;
+            }
+            else
+            {
+              matrixHeight = pSeiGFV[gfv_idx].gfv_matrix_height[i];
+            }
+            pSeiGFV[gfv_idx].gfv_matrix_height_store[i] = matrixHeight;
+#ifdef PRINT_GFV_INFO
+            printf("(%u) ", pSeiGFV[gfv_idx].gfv_matrix_height_store[i]);
+#endif
+          }
+        }
+      }
+#ifdef PRINT_GFV_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfv_matrix_element") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVConfigFile: error parsing gfv_matrix_element", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFV_INFO
+      printf("gfv_matrix_element = ");
+#endif
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
+      {
+        if (pSeiGFV[gfv_idx].gfv_matrix_present_flag)
+        {
+          for (i = 0; i < pSeiGFV[gfv_idx].gfv_num_matrix_type; i++)
+          {
+            numMatrices = pSeiGFV[gfv_idx].gfv_num_matrices_store[i];
+            matrixHeight = pSeiGFV[gfv_idx].gfv_matrix_height_store[i];
+            matrixWidth = pSeiGFV[gfv_idx].gfv_matrix_width_store[i];
+
+            // malloc for numMatrices
+            pSeiGFV[gfv_idx].gfv_matrix_element[i] = (double***) calloc((numMatrices), sizeof(double**));
+            if (!pSeiGFV[gfv_idx].gfv_matrix_element[i]) {
+              no_mem_exit("ParseGFVConfigFile: alloc gfv_matrix_element, numMatrices");
+            }
+
+            // over each matrix
+            for (j = 0; j < numMatrices; j++)
+            {
+              // malloc for matrixHeight
+              pSeiGFV[gfv_idx].gfv_matrix_element[i][j] = (double**) calloc((matrixHeight), sizeof(double*));
+              if (!pSeiGFV[gfv_idx].gfv_matrix_element[i][j]) {
+                no_mem_exit("ParseGFVConfigFile: alloc gfv_matrix_element, matrixHeight");
+              }
+
+              // over matrixHeight
+              for (k = 0; k < matrixHeight; k++)
+              {
+                // malloc for matrixWidth
+                pSeiGFV[gfv_idx].gfv_matrix_element[i][j][k] = (double*) calloc((matrixWidth), sizeof(double));
+                if (!pSeiGFV[gfv_idx].gfv_matrix_element[i][j][k]) {
+                  no_mem_exit("ParseGFVConfigFile: alloc gfv_matrix_element, matrixWidth");
+                }
+
+                // over matrixWidth
+                for (l = 0; l < matrixWidth; l++)
+                {
+                  ret &= fscanf(fp, "%lf", &tmp_double);
+                  pSeiGFV[gfv_idx].gfv_matrix_element[i][j][k][l] = tmp_double;
+#ifdef PRINT_GFV_INFO
+                  printf("%lf ", pSeiGFV[gfv_idx].gfv_matrix_element[i][j][k][l]);
+#endif
+                }
+              }
+            }
+          }
+        }
+      }
+#ifdef PRINT_GFV_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfv_payload_filename") == 0) 
+    {
+      ret = fscanf(fp, " = %4095[^\n]\n", temp);
+#ifdef PRINT_GFV_INFO
+      printf("gfv_payload_filename = %s\n", temp);
+#endif
+      for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++) 
+      {
+        if (pSeiGFV[gfv_idx].gfv_nn_present_flag)
+        {
+          if (pSeiGFV[gfv_idx].gfv_nn_mode_idc == 0)
+          {
+            FILE* file;
+            if ((file = fopen(temp, "rb")) == NULL) 
+            {
+              fprintf(stderr, "GFV NN payload file %s is not found.\n", temp);
+              return 1;
+            }
+  
+            if (fseek(file, 0, SEEK_END) != 0) {
+              fclose(file);
+              return -1;
+            }
+  
+            long payload_size = ftell(file);
+            if (payload_size == -1) {
+              fclose(file);
+              return -1;
+            }
+            rewind(file);
+
+            pSeiGFV[gfv_idx].gfv_payload_length = payload_size;
+  
+            pSeiGFV[gfv_idx].gfv_payload_byte = malloc(payload_size);
+            if (!pSeiGFV[gfv_idx].gfv_payload_byte) {
+              no_mem_exit("ParseGFVConfigFile: alloc gfv_payload_byte");
+            }
+
+            size_t bytes_read = fread(pSeiGFV[gfv_idx].gfv_payload_byte, 1, payload_size, file);
+            if (bytes_read != (size_t)payload_size) {
+                free(pSeiGFV[gfv_idx].gfv_payload_byte);
+                pSeiGFV[gfv_idx].gfv_payload_byte = NULL;
+                fclose(file);
+                return -1;
+            }
+
+            fclose(file);
+          }
+        }
+      }
+#ifdef PRINT_GFV_INFO     
+      printf("ret = %u\n", ret);
+#endif
+    }
+
+    else
+    {
+      // read till the line end 
+      if (NULL == fgets(buf, sizeof(buf), fp))
+      {
+        error ("ParseGFVConfigFile: error parsing GFV config file, fgets returns null",500);
+      }
+    }
+    if (ret != 1)
+    {
+      error ("ParseGFVConfigFile: error parsing GFV config file, format error",500);
+    }
+  }
+
+  fclose(fp);
+
+  return 0;
+}
+
+static void InitGFV(SEIParameters *p_SEI, InputParameters *p_Inp) 
+{
+  if (p_Inp->GFVSEIPresentFlag == 0)
+  {
+    p_SEI->seiHasGFV_info = FALSE;
+    p_SEI->gfv_num_sei = 0;
+    return;
+  }
+
+#ifdef PRINT_GFV_INFO
+  printf("InitGFV, start\n");
+#endif
+  
+  for (int gfv_idx = 0; gfv_idx < MAX_NUM_GFV_CNT; gfv_idx++)
+  {
+    p_SEI->seiGFV[gfv_idx].data = malloc( sizeof(Bitstream) );
+    if( p_SEI->seiGFV[gfv_idx].data == NULL ) no_mem_exit("InitGFV: seiGFV[i].data");
+    p_SEI->seiGFV[gfv_idx].data->streamBuffer = malloc(MAXRTPPAYLOADLEN);
+    if( p_SEI->seiGFV[gfv_idx].data->streamBuffer == NULL ) no_mem_exit("InitGFV: seiGFV[i].data->streamBuffer");
+  }
+  
+  ClearGFV(p_SEI);
+
+  // read GFV config from file
+  ParseGFVConfigFile(p_SEI, p_Inp, p_SEI->seiGFV);
+  
+  // all initialized, set GFV presence to true
+  p_SEI->seiHasGFV_info = TRUE;
+
+#ifdef PRINT_GFV_INFO
+  printf("InitGFV, finish with %u SEI\n", p_SEI->gfv_num_sei);
+#endif
+}
+
+static void ClearGFV(SEIParameters *p_SEI) 
+{
+#ifdef PRINT_GFV_INFO
+  printf("ClearGFV, start\n");
+#endif
+  for (int gfv_idx = 0; gfv_idx < MAX_NUM_GFV_CNT; gfv_idx++)
+  {
+    memset( p_SEI->seiGFV[gfv_idx].data->streamBuffer, 0, MAXRTPPAYLOADLEN);
+    p_SEI->seiGFV[gfv_idx].data->bits_to_go  = 8;
+    p_SEI->seiGFV[gfv_idx].data->byte_pos    = 0;
+    p_SEI->seiGFV[gfv_idx].data->byte_buf    = 0;
+    p_SEI->seiGFV[gfv_idx].payloadSize       = 0;
+
+    
+    p_SEI->seiGFV[gfv_idx].gfv_number = 0;
+    p_SEI->seiGFV[gfv_idx].gfv_current_id = 0;
+    p_SEI->seiGFV[gfv_idx].gfv_base_pic_flag = TRUE;
+    p_SEI->seiGFV[gfv_idx].gfv_nn_present_flag = FALSE;
+    p_SEI->seiGFV[gfv_idx].gfv_nn_mode_idc = 1;
+    memset(p_SEI->seiGFV[gfv_idx].gfv_nn_tag_uri, 0, sizeof(p_SEI->seiGFV[gfv_idx].gfv_nn_tag_uri));
+    memset(p_SEI->seiGFV[gfv_idx].gfv_nn_uri, 0, sizeof(p_SEI->seiGFV[gfv_idx].gfv_nn_uri));
+
+    p_SEI->seiGFV[gfv_idx].gfv_chroma_key_info_present_flag = FALSE;
+    memset(p_SEI->seiGFV[gfv_idx].gfv_chroma_key_value_present_flag, FALSE, sizeof(p_SEI->seiGFV[gfv_idx].gfv_chroma_key_value_present_flag));
+    memset(p_SEI->seiGFV[gfv_idx].gfv_chroma_key_value, 0, sizeof(p_SEI->seiGFV[gfv_idx].gfv_chroma_key_value));
+    memset(p_SEI->seiGFV[gfv_idx].gfv_chroma_key_thr_present_flag, FALSE, sizeof(p_SEI->seiGFV[gfv_idx].gfv_chroma_key_thr_present_flag));
+    memset(p_SEI->seiGFV[gfv_idx].gfv_chroma_key_thr_value, 0, sizeof(p_SEI->seiGFV[gfv_idx].gfv_chroma_key_thr_value));
+
+    p_SEI->seiGFV[gfv_idx].gfv_id = 0;
+    p_SEI->seiGFV[gfv_idx].gfv_cnt = 0;
+    p_SEI->seiGFV[gfv_idx].gfv_drive_pic_fusion_flag = FALSE;
+    p_SEI->seiGFV[gfv_idx].gfv_low_confidence_face_parameter_flag = TRUE;
+
+    p_SEI->seiGFV[gfv_idx].gfv_coordinate_present_flag = FALSE;
+    p_SEI->seiGFV[gfv_idx].gfv_coordinate_pred_flag = FALSE;
+    p_SEI->seiGFV[gfv_idx].gfv_coordinate_quantization_factor = 0;
+    p_SEI->seiGFV[gfv_idx].gfv_coordinate_point_num = 0;
+    p_SEI->seiGFV[gfv_idx].gfv_3d_coordinate_flag = FALSE;
+    p_SEI->seiGFV[gfv_idx].gfv_coordinate_z_max_value = 0;
+
+    p_SEI->seiGFV[gfv_idx].gfv_matrix_present_flag = FALSE;
+    p_SEI->seiGFV[gfv_idx].gfv_matrix_pred_flag = FALSE;
+    p_SEI->seiGFV[gfv_idx].gfv_matrix_element_precision_factor = 0;
+    p_SEI->seiGFV[gfv_idx].gfv_num_matrix_type = 0;
+
+    memset(p_SEI->seiGFV[gfv_idx].gfv_payload_filename, 0, sizeof(p_SEI->seiGFV[gfv_idx].gfv_payload_filename));
+    p_SEI->seiGFV[gfv_idx].gfv_payload_length = 0;
+  }
+
+  p_SEI->seiHasGFV_info = FALSE;
+  p_SEI->gfv_num_sei = 0;  
+
+#ifdef PRINT_GFV_INFO
+  printf("ClearGFV, finish\n");
+#endif
+}
+
+static void CloseGFV(SEIParameters *p_SEI) 
+{
+  unsigned int matrixHeight = 0;
+  unsigned int numMatrices = 0;
+
+  int i, j, k;
+#ifdef PRINT_GFV_INFO
+  printf("CloseGFV, start\n");
+#endif
+
+  for (int gfv_idx = 0; gfv_idx < MAX_NUM_GFV_CNT; gfv_idx++)
+  {
+    if (p_SEI->seiGFV[gfv_idx].data)
+    {
+      free(p_SEI->seiGFV[gfv_idx].data->streamBuffer);
+      free(p_SEI->seiGFV[gfv_idx].data);
+    }
+      
+    // free additional pointers in GFV struct
+    if (p_SEI->seiGFV[gfv_idx].gfv_coordinate_x)
+    {
+      free(p_SEI->seiGFV[gfv_idx].gfv_coordinate_x);
+      p_SEI->seiGFV[gfv_idx].gfv_coordinate_x = NULL;
+    }
+
+    if (p_SEI->seiGFV[gfv_idx].gfv_coordinate_y)
+    {
+      free(p_SEI->seiGFV[gfv_idx].gfv_coordinate_y);
+      p_SEI->seiGFV[gfv_idx].gfv_coordinate_y = NULL;
+    }
+
+    if (p_SEI->seiGFV[gfv_idx].gfv_coordinate_z)
+    {
+      free(p_SEI->seiGFV[gfv_idx].gfv_coordinate_z);
+      p_SEI->seiGFV[gfv_idx].gfv_coordinate_z = NULL;
+    }
+
+    if (p_SEI->seiGFV[gfv_idx].gfv_num_matrices_to_num_kps_flag)
+    {
+      free(p_SEI->seiGFV[gfv_idx].gfv_num_matrices_to_num_kps_flag);
+      p_SEI->seiGFV[gfv_idx].gfv_num_matrices_to_num_kps_flag = NULL;
+    }
+
+    if (p_SEI->seiGFV[gfv_idx].gfv_num_matrices_info)
+    {
+      free(p_SEI->seiGFV[gfv_idx].gfv_num_matrices_info);
+      p_SEI->seiGFV[gfv_idx].gfv_num_matrices_info = NULL;
+    }
+
+    if (p_SEI->seiGFV[gfv_idx].gfv_matrix_3D_space_flag)
+    {
+      free(p_SEI->seiGFV[gfv_idx].gfv_matrix_3D_space_flag);
+      p_SEI->seiGFV[gfv_idx].gfv_matrix_3D_space_flag = NULL;
+    }
+
+    if (p_SEI->seiGFV[gfv_idx].gfv_num_matrices)
+    {
+      free(p_SEI->seiGFV[gfv_idx].gfv_num_matrices);
+      p_SEI->seiGFV[gfv_idx].gfv_num_matrices = NULL;
+    }
+
+    if (p_SEI->seiGFV[gfv_idx].gfv_matrix_width)
+    {
+      free(p_SEI->seiGFV[gfv_idx].gfv_matrix_width);
+      p_SEI->seiGFV[gfv_idx].gfv_matrix_width = NULL;
+    }
+
+    if (p_SEI->seiGFV[gfv_idx].gfv_matrix_height)
+    {
+      free(p_SEI->seiGFV[gfv_idx].gfv_matrix_height);
+      p_SEI->seiGFV[gfv_idx].gfv_matrix_height = NULL;
+    }
+
+    if (p_SEI->seiGFV[gfv_idx].gfv_matrix_type_idx)
+    {
+      free(p_SEI->seiGFV[gfv_idx].gfv_matrix_type_idx);
+      p_SEI->seiGFV[gfv_idx].gfv_matrix_type_idx = NULL;
+    }
+
+    if (p_SEI->seiGFV[gfv_idx].gfv_matrix_element) 
+    {
+      for (i = 0; i < p_SEI->seiGFV[gfv_idx].gfv_num_matrix_type; i++)
+      {
+        numMatrices = p_SEI->seiGFV[gfv_idx].gfv_num_matrices_store[i];
+        matrixHeight = p_SEI->seiGFV[gfv_idx].gfv_matrix_height_store[i];
+
+        if (p_SEI->seiGFV[gfv_idx].gfv_matrix_element[i])
+        {
+          for (j = 0; j < numMatrices; j++)
+          {
+            if (p_SEI->seiGFV[gfv_idx].gfv_matrix_element[i][j])
+            {
+              for (k = 0; k < matrixHeight; k++)
+              {
+                if (p_SEI->seiGFV[gfv_idx].gfv_matrix_element[i][j][k]) 
+                {
+                  free(p_SEI->seiGFV[gfv_idx].gfv_matrix_element[i][j][k]);
+                }
+              }
+              free(p_SEI->seiGFV[gfv_idx].gfv_matrix_element[i][j]);
+            }
+          }
+          free(p_SEI->seiGFV[gfv_idx].gfv_matrix_element[i]);
+        }
+      }
+      
+      free(p_SEI->seiGFV[gfv_idx].gfv_num_matrices_store);
+      p_SEI->seiGFV[gfv_idx].gfv_num_matrices_store = NULL;
+
+      free(p_SEI->seiGFV[gfv_idx].gfv_matrix_height_store);
+      p_SEI->seiGFV[gfv_idx].gfv_matrix_height_store = NULL;
+
+      free(p_SEI->seiGFV[gfv_idx].gfv_matrix_width_store);
+      p_SEI->seiGFV[gfv_idx].gfv_matrix_width_store = NULL;
+
+      free(p_SEI->seiGFV[gfv_idx].gfv_matrix_element);
+      p_SEI->seiGFV[gfv_idx].gfv_matrix_element = NULL;
+    }
+
+    if (p_SEI->seiGFV[gfv_idx].gfv_payload_byte)
+    {
+      free(p_SEI->seiGFV[gfv_idx].gfv_payload_byte);
+      p_SEI->seiGFV[gfv_idx].gfv_payload_byte = NULL;
+    }
+
+    // reset pointers to null
+    p_SEI->seiGFV[gfv_idx].data = NULL;
+  }
+  p_SEI->seiHasGFV_info = FALSE;
+  p_SEI->gfv_num_sei = 0;
+
+#ifdef PRINT_GFV_INFO
+  printf("CloseGFV, finish\n");
+#endif
+}
+
+static void FinalizeGFV(SEIParameters *p_SEI, unsigned int gfv_idx)
+{
+  generative_face_video_struct *sei = &p_SEI->seiGFV[gfv_idx];
+  Bitstream *bitstream = sei->data;  
+  unsigned int i;
+
+  unsigned int matrixId, j, k, l, chromac, chromai;
+  unsigned int gfv_coordinate_precision_factor_minus1;
+  unsigned int gfv_num_kps_minus1;
+  unsigned int gfv_coordinate_z_max_value_minus1;
+
+  int cur_coordinate_x_int, cur_coordinate_y_int, cur_coordinate_z_int;
+  int cur_coordinate_x_int_abs, cur_coordinate_y_int_abs, cur_coordinate_z_int_abs;
+  Boolean signflag_x_coord, signflag_y_coord, signflag_z_coord;
+  double coordinate_x_tensor_abs_rec, coordinate_y_tensor_abs_rec, coordinate_z_tensor_abs_rec;
+  
+  unsigned int gfv_matrix_element_precision_factor_minus1;
+  unsigned int gfv_num_matrix_types_minus1;
+  unsigned int gfv_num_matrices_minus1;
+  unsigned int gfv_matrix_width_minus1;
+  unsigned int gfv_matrix_height_minus1;
+  
+  double cur_matrix_element_abs, cur_matrix_element_abs_decimal;
+  int cur_matrix_element_abs_int, cur_matrix_element_abs_dec_int_value;
+  Boolean signflag_matrix_element;
+  double matrix_element_abs_rec;
+
+
+  // Arrays for coordinates
+  double* coordinate_x_rec = NULL;
+  double* coordinate_y_rec = NULL;
+  double* coordinate_z_rec = NULL;
+  
+  // Arrays for matrices
+  unsigned int* matrix_width_vec = NULL;
+  unsigned int* matrix_height_vec = NULL;
+  unsigned int* num_matrices_vec = NULL;
+
+  // Matrix element
+  double**** matrix_element_rec = NULL;
+
+  // Base picture
+  Boolean basePicFlag = FALSE;
+  
+#ifdef PRINT_GFV_INFO
+  printf("FinalizeGFV, start idx %u\n", gfv_idx);
+#endif
+
+  // start
+  write_ue_v("SEI: gfv_id", sei->gfv_id, bitstream);
+  write_ue_v("SEI: gfv_cnt", sei->gfv_cnt, bitstream);
+
+  // GFV base picture
+  if (sei->gfv_cnt == 0)
+  {
+    write_u_1("SEI: gfv_base_picture_flag", sei->gfv_base_pic_flag, bitstream);
+    basePicFlag = sei->gfv_base_pic_flag;
+  }
+  else 
+  {
+    basePicFlag = FALSE;
+  }
+
+#ifdef PRINT_GFV_INFO
+  printf("gfv_id = %u\n", sei->gfv_id);
+  printf("gfv_cnt = %u\n", sei->gfv_cnt);
+  printf("gfv_base_pic_flag = %u\n", basePicFlag);
+#endif
+
+  if (basePicFlag)
+  {
+    write_u_1("SEI: gfv_nn_present_flag", sei->gfv_nn_present_flag, bitstream);
+    if (sei->gfv_nn_present_flag)
+    {
+      write_ue_v("SEI: gfv_mode_idc", sei->gfv_nn_mode_idc, bitstream);
+
+#ifdef PRINT_GFV_INFO
+      printf("gfv_nn_mode_idc = %u\n", sei->gfv_nn_mode_idc);
+#endif
+
+      // Mode IDC 1 processing, to signal NN
+      if (sei->gfv_nn_mode_idc == 1) 
+      {
+        // Byte alignment
+        while (!(bitstream->bits_to_go==8))
+        {
+          write_u_1("SEI: gfv_nn_alignment_zero_bit_a", 0, bitstream);
+        }
+        // String fields
+        write_string("SEI: gfv_nn_tag_uri", sei->gfv_nn_tag_uri, bitstream);
+        write_string("SEI: gfv_nn_uri", sei->gfv_nn_uri, bitstream);
+
+#ifdef PRINT_GFV_INFO
+        printf("gfv_nn_tag_uri = %s\n", sei->gfv_nn_tag_uri);
+        printf("gfv_nn_uri = %s\n", sei->gfv_nn_uri);
+#endif
+      }
+    }
+    
+    write_u_1("SEI: gfv_chroma_key_info_present_flag", sei->gfv_chroma_key_info_present_flag, bitstream);
+#ifdef PRINT_GFV_INFO
+    printf("gfv_chroma_key_info_present_flag = %u\n", sei->gfv_chroma_key_info_present_flag);
+#endif
+    if (sei->gfv_chroma_key_info_present_flag)
+    {
+      for (chromac = 0; chromac < 3; chromac++)
+      {
+        write_u_1("SEI: gfv_chroma_key_value_present_flag[c]", sei->gfv_chroma_key_value_present_flag[chromac], bitstream);
+#ifdef PRINT_GFV_INFO
+        printf("gfv_chroma_key_value_present_flag[c] = %u\n", sei->gfv_chroma_key_value_present_flag[chromac]);
+#endif
+        if (sei->gfv_chroma_key_value_present_flag[chromac])
+        {
+          write_u_v(8, "SEI: gfv_chroma_key_value[chromac]", sei->gfv_chroma_key_value[chromac], bitstream);
+#ifdef PRINT_GFV_INFO
+          printf("gfv_chroma_key_value[c] = %u\n", sei->gfv_chroma_key_value[chromac]);
+#endif
+        }
+      }
+      for (chromai = 0; chromai < 2; chromai++)
+      {
+        write_u_1("SEI: gfv_chroma_key_thr_present_flag[i]", sei->gfv_chroma_key_thr_present_flag[chromai], bitstream);
+#ifdef PRINT_GFV_INFO
+        printf("gfv_chroma_key_thr_present_flag[i] = %u\n", sei->gfv_chroma_key_thr_present_flag[chromai]);
+#endif
+        if (sei->gfv_chroma_key_thr_present_flag[chromai])
+        {
+          write_ue_v("SEI: gfv_chroma_key_thr_value[i]", sei->gfv_chroma_key_thr_value[chromai], bitstream);
+#ifdef PRINT_GFV_INFO
+        printf("gfv_chroma_key_thr_value[i] = %u\n", sei->gfv_chroma_key_thr_value[chromai]);
+#endif
+        }
+      }
+    }
+  }
+  else
+  {
+    // Not base picture, check for drive pic fusion
+    write_u_1("SEI: gfv_drive_picture_fusion_flag", sei->gfv_drive_pic_fusion_flag, bitstream);
+#ifdef PRINT_GFV_INFO
+    printf("gfv_drive_picture_fusion_flag = %u\n", sei->gfv_drive_pic_fusion_flag);
+#endif
+  }
+
+  // low confidence face
+  write_u_1("SEI: gfv_low_confidence_face_parameter_flag", sei->gfv_low_confidence_face_parameter_flag, bitstream);
+#ifdef PRINT_GFV_INFO
+  printf("gfv_low_confidence_face_parameter_flag = %u\n", sei->gfv_low_confidence_face_parameter_flag);
+#endif
+  
+  // face keypoint coordinates
+  write_u_1("SEI: gfv_coordinate_present_flag", sei->gfv_coordinate_present_flag, bitstream);
+#ifdef PRINT_GFV_INFO
+  printf("gfv_coordinate_present_flag = %u\n", sei->gfv_coordinate_present_flag);
+#endif
+  if (sei->gfv_coordinate_present_flag)
+  {
+    write_u_1("SEI: gfv_kps_pred_flag", sei->gfv_coordinate_pred_flag, bitstream);
+#ifdef PRINT_GFV_INFO
+    printf("gfv_kps_pred_flag = %u\n", sei->gfv_coordinate_pred_flag);
+#endif
+    if ( basePicFlag || !sei->gfv_coordinate_pred_flag )
+    {
+      gfv_coordinate_precision_factor_minus1 = sei->gfv_coordinate_quantization_factor - 1;
+      // CHECK: The value of gfv_coordinate_precision_factor_minus1 shall be in the range of 0 to 31, inclusive
+      assert( gfv_coordinate_precision_factor_minus1 >= 0 && gfv_coordinate_precision_factor_minus1 <= 31 );
+      write_ue_v("SEI: gfv_coordinate_precision_factor_minus1", gfv_coordinate_precision_factor_minus1, bitstream);
+
+      gfv_num_kps_minus1 = sei->gfv_coordinate_point_num - 1;
+      write_ue_v("SEI: gfv_num_kps_minus1", gfv_num_kps_minus1, bitstream);
+
+      write_u_1("SEI: gfv_coordinate_z_present_flag", sei->gfv_3d_coordinate_flag, bitstream);
+
+#ifdef PRINT_GFV_INFO
+      printf("gfv_coordinate_precision_factor_minus1 = %u\n", gfv_coordinate_precision_factor_minus1);
+      printf("gfv_num_kps_minus1 = %u\n", gfv_num_kps_minus1);
+      printf("gfv_coordinate_z_present_flag = %u\n", sei->gfv_3d_coordinate_flag);
+#endif
+      if (sei->gfv_3d_coordinate_flag)
+      {
+        gfv_coordinate_z_max_value_minus1 = sei->gfv_coordinate_z_max_value - 1;
+        // CHECK: The value of gfv_coordinate_z_max_value_minus1 shall be in the range of 0 to 2^(16) - 1, inclusive
+        assert( gfv_coordinate_z_max_value_minus1 >= 0 && gfv_coordinate_z_max_value_minus1 <= ((1 << 16) - 1) );
+        write_ue_v("SEI: gfv_coordinate_z_max_value_minus1", gfv_coordinate_z_max_value_minus1, bitstream);
+#ifdef PRINT_GFV_INFO
+        printf("gfv_coordinate_z_max_value_minus1 = %u\n", gfv_coordinate_z_max_value_minus1);
+#endif
+      }
+    }
+
+    // Allocate memory for coordinate arrays
+    coordinate_x_rec = (double*)malloc(sei->gfv_coordinate_point_num * sizeof(double));
+    if (!coordinate_x_rec) no_mem_exit("FinalizeGFV: coordinate_x_rec");
+    coordinate_y_rec = (double*)malloc(sei->gfv_coordinate_point_num * sizeof(double));
+    if (!coordinate_y_rec) no_mem_exit("FinalizeGFV: coordinate_y_rec");
+    coordinate_z_rec = (double*)malloc(sei->gfv_coordinate_point_num * sizeof(double));
+    if (!coordinate_z_rec) no_mem_exit("FinalizeGFV: coordinate_z_rec");
+
+    // For base pic, free and reallocate base coordinates
+    if ( basePicFlag )
+    {
+      if (base_coordinate_x_rec) free(base_coordinate_x_rec);
+      base_coordinate_x_rec = (double*)malloc(sei->gfv_coordinate_point_num * sizeof(double));
+      if (!base_coordinate_x_rec) no_mem_exit("FinalizeGFV: base_coordinate_x_rec");
+      
+      if (prev_coordinate_x_rec) free(prev_coordinate_x_rec);
+      prev_coordinate_x_rec = (double*)malloc(sei->gfv_coordinate_point_num * sizeof(double));
+      if (!prev_coordinate_x_rec) no_mem_exit("FinalizeGFV: prev_coordinate_x_rec");
+      
+      if (base_coordinate_y_rec) free(base_coordinate_y_rec);
+      base_coordinate_y_rec = (double*)malloc(sei->gfv_coordinate_point_num * sizeof(double));
+      if (!base_coordinate_y_rec) no_mem_exit("FinalizeGFV: base_coordinate_y_rec");
+
+      if (prev_coordinate_y_rec) free(prev_coordinate_y_rec);
+      prev_coordinate_y_rec = (double*)malloc(sei->gfv_coordinate_point_num * sizeof(double));
+      if (!prev_coordinate_y_rec) no_mem_exit("FinalizeGFV: prev_coordinate_y_rec");
+
+      if (base_coordinate_z_rec) free(base_coordinate_z_rec);
+      base_coordinate_z_rec = (double*)malloc(sei->gfv_coordinate_point_num * sizeof(double));
+      if (!base_coordinate_z_rec) no_mem_exit("FinalizeGFV: base_coordinate_z_rec");
+      
+      if (prev_coordinate_z_rec) free(prev_coordinate_z_rec);
+      prev_coordinate_z_rec = (double*)malloc(sei->gfv_coordinate_point_num * sizeof(double));
+      if (!prev_coordinate_z_rec) no_mem_exit("FinalizeGFV: prev_coordinate_z_rec");
+    }
+
+#ifdef PRINT_GFV_INFO
+    printf("gfv_coordinate_xyz = ");
+#endif
+    // X_coordinate_tensor && Y_coordinate_tensor  && Z_coordinate_tensor
+    for (i = 0; i < sei->gfv_coordinate_point_num; i++)
+    {
+      // absolute coords
+      if (!sei->gfv_coordinate_pred_flag)
+      {
+        // X_coordinate_tensor
+        cur_coordinate_x_int = (int)(sei->gfv_coordinate_x[i] * (1 << sei->gfv_coordinate_quantization_factor) + 0.5);
+        cur_coordinate_x_int_abs = abs(cur_coordinate_x_int);
+        write_ue_v("SEI: gfv_coordinate_x_abs[ i ]", cur_coordinate_x_int_abs, bitstream);
+        if (cur_coordinate_x_int_abs)
+        {
+          signflag_x_coord = (cur_coordinate_x_int <= 0) ? TRUE : FALSE;
+          write_u_1("SEI: gfv_coordinate_x_sign_flag[ i ]", signflag_x_coord, bitstream);
+        }
+        coordinate_x_tensor_abs_rec = ((double)cur_coordinate_x_int) / (1 << sei->gfv_coordinate_quantization_factor);
+        coordinate_x_rec[i] = coordinate_x_tensor_abs_rec;
+
+        // Y_coordinate_tensor
+        cur_coordinate_y_int = (int)(sei->gfv_coordinate_y[i] * (1 << sei->gfv_coordinate_quantization_factor) + 0.5);
+        cur_coordinate_y_int_abs = abs(cur_coordinate_y_int);
+        write_ue_v("SEI: gfv_coordinate_y_abs[ i ]", cur_coordinate_y_int_abs, bitstream);
+        if (cur_coordinate_y_int_abs)
+        {
+          signflag_y_coord = (cur_coordinate_y_int <= 0) ? TRUE : FALSE;
+          write_u_1("SEI: gfv_coordinate_y_sign_flag[ i ]", signflag_y_coord, bitstream);
+        }
+        coordinate_y_tensor_abs_rec = ((double)cur_coordinate_y_int) / (1 << sei->gfv_coordinate_quantization_factor);
+        coordinate_y_rec[i] = coordinate_y_tensor_abs_rec;
+
+        // Z_coordinate_tensor
+        if (sei->gfv_3d_coordinate_flag)
+        {
+          cur_coordinate_z_int = (int)(sei->gfv_coordinate_z[i] * (1 << sei->gfv_coordinate_quantization_factor) + 0.5);
+          cur_coordinate_z_int_abs = abs(cur_coordinate_z_int);
+          write_ue_v("SEI: gfv_coordinate_z_abs[ i ]", cur_coordinate_z_int_abs, bitstream);
+          if (cur_coordinate_z_int_abs)
+          {
+            signflag_z_coord = (cur_coordinate_z_int <= 0) ? TRUE : FALSE;
+            write_u_1("SEI: gfv_coordinate_z_sign_flag[ i ]", signflag_z_coord, bitstream);
+          }
+          coordinate_z_tensor_abs_rec = ((double)cur_coordinate_z_int) / (1 << sei->gfv_coordinate_quantization_factor);
+          coordinate_z_rec[i] = coordinate_z_tensor_abs_rec;
+        }
+      }
+      // inter-frame difference with dx
+      else
+      {
+        // X_coordinate_pred_tensor
+        cur_coordinate_x_int = (int)((sei->gfv_coordinate_x[i] - (basePicFlag ? (i == 0 ? 0 : coordinate_x_rec[i - 1]) : (sei->gfv_cnt == 0 ? base_coordinate_x_rec[i] : prev_coordinate_x_rec[i]))) * (1 << sei->gfv_coordinate_quantization_factor) + 0.5);
+        coordinate_x_tensor_abs_rec = ((double)cur_coordinate_x_int) / (1 << sei->gfv_coordinate_quantization_factor);
+        coordinate_x_rec[i] = coordinate_x_tensor_abs_rec + (basePicFlag ? (i == 0 ? 0 : coordinate_x_rec[i - 1]) : (sei->gfv_cnt == 0 ? base_coordinate_x_rec[i] : prev_coordinate_x_rec[i]));
+        cur_coordinate_x_int_abs = abs(cur_coordinate_x_int);
+        write_ue_v("SEI: gfv_coordinate_dx_abs[ i ]", cur_coordinate_x_int_abs, bitstream);
+        if (cur_coordinate_x_int_abs)
+        {
+          signflag_x_coord = (cur_coordinate_x_int <= 0) ? TRUE : FALSE;
+          write_u_1("SEI: gfv_coordinate_dx_sign_flag[ i ]", signflag_x_coord, bitstream);
+        }
+        
+        // Y_coordinate_pred_tensor
+        cur_coordinate_y_int = (int)((sei->gfv_coordinate_y[i] - (basePicFlag ? (i == 0 ? 0 : coordinate_y_rec[i - 1]) : (sei->gfv_cnt == 0 ? base_coordinate_y_rec[i] : prev_coordinate_y_rec[i]))) * (1 << sei->gfv_coordinate_quantization_factor) + 0.5);
+        coordinate_y_tensor_abs_rec = ((double)cur_coordinate_y_int) / (1 << sei->gfv_coordinate_quantization_factor);
+        coordinate_y_rec[i] = coordinate_y_tensor_abs_rec + (basePicFlag ? (i == 0 ? 0 : coordinate_y_rec[i - 1]) : (sei->gfv_cnt == 0 ? base_coordinate_y_rec[i] : prev_coordinate_y_rec[i]));
+        cur_coordinate_y_int_abs = abs(cur_coordinate_y_int);
+        write_ue_v("SEI: gfv_coordinate_dy_abs[ i ]", cur_coordinate_y_int_abs, bitstream);
+        if (cur_coordinate_y_int_abs)
+        {
+          signflag_y_coord = (cur_coordinate_y_int <= 0) ? TRUE : FALSE;
+          write_u_1("SEI: gfv_coordinate_dy_sign_flag[ i ]", signflag_y_coord, bitstream);
+        }
+
+        // Z_coordinate_pred_tensor
+        if (sei->gfv_3d_coordinate_flag)
+        {
+          cur_coordinate_z_int = (int)((sei->gfv_coordinate_z[i] - (basePicFlag ? (i == 0 ? 0 : coordinate_z_rec[i - 1]) : (sei->gfv_cnt == 0 ? base_coordinate_z_rec[i] : prev_coordinate_z_rec[i]))) * (1 << sei->gfv_coordinate_quantization_factor) + 0.5);
+          coordinate_z_tensor_abs_rec = ((double)cur_coordinate_z_int) / (1 << sei->gfv_coordinate_quantization_factor);
+          coordinate_z_rec[i] = coordinate_z_tensor_abs_rec + (basePicFlag ? (i == 0 ? 0 : coordinate_z_rec[i - 1]) : (sei->gfv_cnt == 0 ? base_coordinate_z_rec[i] : prev_coordinate_z_rec[i]));
+          cur_coordinate_z_int_abs = abs(cur_coordinate_z_int);
+          write_ue_v("SEI: gfv_coordinate_dz_abs[ i ]", cur_coordinate_z_int_abs, bitstream);
+          if (cur_coordinate_z_int_abs)
+          {
+            signflag_z_coord = (cur_coordinate_z_int <= 0) ? TRUE : FALSE;
+            write_u_1("SEI: gfv_coordinate_dz_sign_flag[ i ]", signflag_z_coord, bitstream);
+          }
+        }
+      }
+#ifdef PRINT_GFV_INFO
+      printf("%d (%d) ", cur_coordinate_x_int_abs, cur_coordinate_y_int_abs);
+      if (sei->gfv_3d_coordinate_flag)
+      {
+        printf("[%d] ", cur_coordinate_z_int_abs);
+      }
+#endif      
+    }
+#ifdef PRINT_GFV_INFO
+    printf("\n");
+#endif
+
+    if (do_update_gfv_coordinate)
+    {
+      for (i = 0; i < sei->gfv_coordinate_point_num; i++) 
+      {
+        prev_coordinate_x_rec[i] = coordinate_x_rec[i];
+        prev_coordinate_y_rec[i] = coordinate_y_rec[i];
+        if (sei->gfv_3d_coordinate_flag == 1) {
+          prev_coordinate_z_rec[i] = coordinate_z_rec[i];
+        }
+      }
+      if (sei->gfv_base_pic_flag) 
+      {
+        for (i = 0; i < sei->gfv_coordinate_point_num; i++) 
+        {
+          base_coordinate_x_rec[i] = coordinate_x_rec[i];
+          base_coordinate_y_rec[i] = coordinate_y_rec[i];
+          if (sei->gfv_3d_coordinate_flag == 1) {
+            base_coordinate_z_rec[i] = coordinate_z_rec[i];
+          }
+        }
+      }
+      do_update_gfv_coordinate = FALSE;
+    }
+    else 
+    {
+      do_update_gfv_coordinate = TRUE;
+    }
+  }
+
+  // Matrix parameters
+
+  // CHECK: When gfv_coordinate_present_flag is equal to 0, gfv_matrix_present_flag shall be equal to 1
+  assert( (sei->gfv_coordinate_present_flag) || (sei->gfv_matrix_present_flag) );
+  write_u_1("SEI: gfv_matrix_present_flag", sei->gfv_matrix_present_flag, bitstream);
+#ifdef PRINT_GFV_INFO
+  printf("gfv_matrix_present_flag = %u\n", sei->gfv_matrix_present_flag);
+#endif
+  if (sei->gfv_matrix_present_flag) 
+  {
+    if (!basePicFlag)
+    {
+      write_u_1("SEI: gfv_matrix_pred_flag", sei->gfv_matrix_pred_flag, bitstream);
+#ifdef PRINT_GFV_INFO
+      printf("gfv_matrix_pred_flag = %u\n", sei->gfv_matrix_pred_flag);
+#endif
+    }
+    
+    if (basePicFlag)
+    {
+      // For base pic, free and reallocate base matrix info
+      if (base_num_matrices_vec) free(base_num_matrices_vec);
+      base_num_matrices_vec = (unsigned int*)malloc(sei->gfv_num_matrix_type * sizeof(unsigned int));
+      if (!base_num_matrices_vec) no_mem_exit("FinalizeGFV: base_num_matrices_vec");
+
+      if (base_matrix_width_vec) free(base_matrix_width_vec);
+      base_matrix_width_vec = (unsigned int*)malloc(sei->gfv_num_matrix_type * sizeof(unsigned int));
+      if (!base_matrix_width_vec) no_mem_exit("FinalizeGFV: base_matrix_width_vec");
+      
+      if (base_matrix_height_vec) free(base_matrix_height_vec);
+      base_matrix_height_vec = (unsigned int*)malloc(sei->gfv_num_matrix_type * sizeof(unsigned int));
+      if (!base_matrix_height_vec) no_mem_exit("FinalizeGFV: base_matrix_height_vec");
+    }
+    
+    if (!sei->gfv_matrix_pred_flag)
+    {
+      gfv_matrix_element_precision_factor_minus1 = sei->gfv_matrix_element_precision_factor - 1;
+      // CHECK: The value of gfv_matrix_element_precision_factor_minus1 shall be in the range of 0 to 31, inclusive
+      assert( gfv_matrix_element_precision_factor_minus1 >= 0 && gfv_matrix_element_precision_factor_minus1 <= 31 );
+      write_ue_v("SEI: gfv_matrix_element_precision_factor_minus1", gfv_matrix_element_precision_factor_minus1, bitstream);
+
+      gfv_num_matrix_types_minus1 = sei->gfv_num_matrix_type - 1;
+      write_ue_v("SEI: gfv_num_matrix_types_minus1", gfv_num_matrix_types_minus1, bitstream);
+
+#ifdef PRINT_GFV_INFO
+      printf("gfv_matrix_element_precision_factor_minus1 = %u\n", gfv_matrix_element_precision_factor_minus1);
+      printf("gfv_num_matrix_types_minus1 = %u\n", gfv_num_matrix_types_minus1);
+#endif
+      
+      matrix_width_vec = (unsigned int*)malloc(sei->gfv_num_matrix_type * sizeof(unsigned int));
+      if (!matrix_width_vec) no_mem_exit("FinalizeGFV: matrix_width_vec");
+      matrix_height_vec = (unsigned int*)malloc(sei->gfv_num_matrix_type * sizeof(unsigned int));
+      if (!matrix_height_vec) no_mem_exit("FinalizeGFV: matrix_height_vec");
+      num_matrices_vec = (unsigned int*)malloc(sei->gfv_num_matrix_type * sizeof(unsigned int));
+      if (!num_matrices_vec) no_mem_exit("FinalizeGFV: num_matrices_vec");
+
+      for (matrixId = 0; matrixId < sei->gfv_num_matrix_type; matrixId++)
+      {
+        // CHECK: The value of gfv_matrix_type_idx shall be in the range of 0 to 63, inclusive
+        assert( sei->gfv_matrix_type_idx[matrixId] >= 0 && sei->gfv_matrix_type_idx[matrixId] <= 63 );
+        write_u_v(6, "SEI: gfv_matrix_type_idx", sei->gfv_matrix_type_idx[matrixId], bitstream);
+
+        if (sei->gfv_matrix_type_idx[matrixId] == 0 || sei->gfv_matrix_type_idx[matrixId] == 1)
+        {
+          // CHECK: coordinatePresentFlag shall be 1 when matrix type is 0 or 1
+          assert( sei->gfv_coordinate_present_flag == TRUE );
+          write_u_1("SEI: gfv_num_matrices_equal_to_num_kps_flag", sei->gfv_num_matrices_to_num_kps_flag[matrixId], bitstream);
+          if (!sei->gfv_num_matrices_to_num_kps_flag[matrixId])
+          {
+            // CHECK: The value of gfv_num_matrices_info shall be in the range of 0 to 2^(10) - 1, inclusive
+            assert( sei->gfv_num_matrices_info[matrixId] >= 0 && sei->gfv_num_matrices_info[matrixId] <= (1 << 10) - 1 );
+            write_ue_v("SEI: gfv_num_matrices_info", sei->gfv_num_matrices_info[matrixId], bitstream);
+          }
+        }
+        else if (sei->gfv_matrix_type_idx[matrixId] == 2 || sei->gfv_matrix_type_idx[matrixId] == 3 || sei->gfv_matrix_type_idx[matrixId] >= 7)
+        {
+          if (sei->gfv_matrix_type_idx[matrixId] >= 7)
+          {
+            gfv_num_matrices_minus1 = sei->gfv_num_matrices[matrixId] - 1;
+            // CHECK: The value of gfv_num_matrices_minus1 shall be in the range of 0 to 2^(10) - 1, inclusive
+            assert( gfv_num_matrices_minus1 >= 0 && gfv_num_matrices_minus1 <= ((1 << 10) - 1) );
+            write_ue_v("SEI: gfv_num_matrices_minus1", gfv_num_matrices_minus1, bitstream);
+          }
+          gfv_matrix_width_minus1 = sei->gfv_matrix_width[matrixId] - 1;
+          // CHECK: The value of gfv_matrix_width_minus1 shall be in the range of 0 to 2^(10) - 1, inclusive
+          assert( gfv_matrix_width_minus1 >= 0 && gfv_matrix_width_minus1 <= ((1 << 10) - 1));
+          write_ue_v("SEI: gfv_matrix_width_minus1", gfv_matrix_width_minus1, bitstream);
+
+          gfv_matrix_height_minus1 = sei->gfv_matrix_height[matrixId] - 1;
+          // CHECK: The value of gfv_matrix_height_minus1 shall be in the range of 0 to 2^(10) - 1, inclusive
+          assert( gfv_matrix_height_minus1 >= 0 && gfv_matrix_height_minus1 <= ((1 << 10) - 1) );
+          write_ue_v("SEI: gfv_matrix_height_minus1", gfv_matrix_height_minus1, bitstream);
+        }
+        else if (sei->gfv_matrix_type_idx[matrixId] >= 4 && sei->gfv_matrix_type_idx[matrixId] <= 6)
+        {
+          if (!sei->gfv_coordinate_present_flag)
+          {
+            write_u_1("SEI: gfv_Matrix3DSpaceFlag", sei->gfv_matrix_3D_space_flag[matrixId], bitstream);
+          }
+        }
+      }
+    }
+    // Pred coding for matrix
+    else
+    {
+      // Allocate memory for matrix info
+      matrix_width_vec = (unsigned int*)malloc(sei->gfv_num_matrix_type * sizeof(unsigned int));
+      if (!matrix_width_vec) no_mem_exit("FinalizeGFV: matrix_width_vec");
+      matrix_height_vec = (unsigned int*)malloc(sei->gfv_num_matrix_type * sizeof(unsigned int));
+      if (!matrix_height_vec) no_mem_exit("FinalizeGFV: matrix_height_vec");
+      num_matrices_vec = (unsigned int*)malloc(sei->gfv_num_matrix_type * sizeof(unsigned int));
+      if (!num_matrices_vec) no_mem_exit("FinalizeGFV: num_matrices_vec");
+    }
+    
+    if (sei->gfv_matrix_pred_flag)
+    {
+      for (matrixId = 0; matrixId < sei->gfv_num_matrix_type; matrixId++)
+      {
+        num_matrices_vec[matrixId] = base_num_matrices_vec[matrixId];
+        matrix_height_vec[matrixId] = base_matrix_height_vec[matrixId];
+        matrix_width_vec[matrixId] = base_matrix_width_vec[matrixId];
+      }
+    }
+    else
+    {
+      for (matrixId = 0; matrixId < sei->gfv_num_matrix_type; matrixId++)
+      {
+        num_matrices_vec[matrixId] = sei->gfv_num_matrices_store[matrixId];
+        matrix_height_vec[matrixId] = sei->gfv_matrix_height_store[matrixId];
+        matrix_width_vec[matrixId] = sei->gfv_matrix_width_store[matrixId];
+      }
+    }
+
+    if (basePicFlag)
+    {
+      for (matrixId = 0; matrixId < sei->gfv_num_matrix_type; matrixId++) {
+          base_num_matrices_vec[matrixId] = num_matrices_vec[matrixId];
+          base_matrix_height_vec[matrixId] = matrix_height_vec[matrixId];
+          base_matrix_width_vec[matrixId] = matrix_width_vec[matrixId];
+        }
+    }
+
+#ifdef PRINT_GFV_INFO
+    printf("gfv_matrix_type_idx = ");
+    for (matrixId = 0; matrixId < sei->gfv_num_matrix_type; matrixId++)
+    {
+      printf("%u ", sei->gfv_matrix_type_idx[matrixId]);
+    }
+    printf("\n");
+
+    printf("gfv_num_matrices = ");
+    for (matrixId = 0; matrixId < sei->gfv_num_matrix_type; matrixId++)
+    {
+      printf("%u (%u) ", num_matrices_vec[matrixId], base_num_matrices_vec[matrixId]);
+    }
+    printf("\n");
+
+    printf("gfv_matrix_width = ");
+    for (matrixId = 0; matrixId < sei->gfv_num_matrix_type; matrixId++)
+    {
+      printf("%u (%u) ", matrix_width_vec[matrixId], base_matrix_width_vec[matrixId]);
+    }
+    printf("\n");
+
+    printf("gfv_matrix_height = ");
+    for (matrixId = 0; matrixId < sei->gfv_num_matrix_type; matrixId++)
+    {
+      printf("%u (%u) ", matrix_height_vec[matrixId], base_matrix_height_vec[matrixId]);
+    }
+    printf("\n");
+#endif
+
+    // For base pic, free and reallocate base matrix
+    if ( basePicFlag ) 
+    {
+      if ( base_matrix_rec )
+      {
+        for (matrixId = 0; matrixId < sei->gfv_num_matrix_type; matrixId++)
+        {
+          for (j = 0; j < base_num_matrices_vec[matrixId]; j++)
+          {
+            for (k = 0; k < base_matrix_height_vec[matrixId]; k++)
+            {
+              free(base_matrix_rec[matrixId][j][k]);
+            }
+            free(base_matrix_rec[matrixId][j]);
+          }
+          free(base_matrix_rec[matrixId]);
+        }
+      }
+
+      if ( prev_matrix_rec )
+      {
+        for (matrixId = 0; matrixId < sei->gfv_num_matrix_type; matrixId++)
+        {
+          for (j = 0; j < num_matrices_vec[matrixId]; j++)
+          {
+            for (k = 0; k < matrix_height_vec[matrixId]; k++)
+            {
+              free(prev_matrix_rec[matrixId][j][k]);
+            }
+            free(prev_matrix_rec[matrixId][j]);
+          }
+          free(prev_matrix_rec[matrixId]);
+        }
+      }
+
+      base_matrix_rec = (double****) calloc((sei->gfv_num_matrix_type), sizeof(double***));
+      if (!base_matrix_rec) no_mem_exit("FinalizeGFV: base_matrix_rec");
+
+      for (matrixId = 0; matrixId < sei->gfv_num_matrix_type; matrixId++)
+      {
+        base_matrix_rec[matrixId] = (double***) calloc((base_num_matrices_vec[matrixId]), sizeof(double**));
+        if (!base_matrix_rec[matrixId]) no_mem_exit("FinalizeGFV: base_matrix_rec[matrixId]");
+
+        for (j = 0; j < base_num_matrices_vec[matrixId]; j++)
+        {
+          base_matrix_rec[matrixId][j] = (double**) calloc((base_matrix_height_vec[matrixId]), sizeof(double*));
+          if (!base_matrix_rec[matrixId][j]) no_mem_exit("FinalizeGFV: base_matrix_rec[matrixId][j]");
+
+          for (k = 0; k < base_matrix_height_vec[matrixId]; k++)
+          {
+            base_matrix_rec[matrixId][j][k] = (double*) calloc((base_matrix_width_vec[matrixId]), sizeof(double));
+            if (!base_matrix_rec[matrixId][j][k]) no_mem_exit("FinalizeGFV: base_matrix_rec[matrixId][j][k]");
+          }
+        }
+      }
+
+      prev_matrix_rec = (double****) calloc((sei->gfv_num_matrix_type), sizeof(double***));
+      if (!prev_matrix_rec) no_mem_exit("FinalizeGFV: prev_matrix_rec");
+
+      for (matrixId = 0; matrixId < sei->gfv_num_matrix_type; matrixId++)
+      {
+        prev_matrix_rec[matrixId] = (double***) calloc((num_matrices_vec[matrixId]), sizeof(double**));
+        if (!prev_matrix_rec[matrixId]) no_mem_exit("FinalizeGFV: prev_matrix[matrixId]");
+
+        for (j = 0; j < num_matrices_vec[matrixId]; j++)
+        {
+          prev_matrix_rec[matrixId][j] = (double**) calloc((matrix_height_vec[matrixId]), sizeof(double*));
+          if (!prev_matrix_rec[matrixId][j]) no_mem_exit("FinalizeGFV: prev_matrix[matrixId][j]");
+
+          for (k = 0; k < matrix_height_vec[matrixId]; k++)
+          {
+            prev_matrix_rec[matrixId][j][k] = (double*) calloc((matrix_width_vec[matrixId]), sizeof(double));
+            if (!prev_matrix_rec[matrixId][j][k]) no_mem_exit("FinalizeGFV: prev_matrix_rec[matrixId][j][k]");
+          }
+        }
+      }
+    }
+
+    // Allocate 4D matrix element array
+    matrix_element_rec = (double****) calloc((sei->gfv_num_matrix_type), sizeof(double***));
+    if (!matrix_element_rec) printf("FinalizeGFV: matrix_element_rec");
+#ifdef PRINT_GFV_INFO
+    printf("matrix_element_rec = ");
+#endif
+    for (matrixId = 0; matrixId < sei->gfv_num_matrix_type; matrixId++)
+    {
+      matrix_element_rec[matrixId] = (double***) calloc((num_matrices_vec[matrixId]), sizeof(double**));
+      if (!matrix_element_rec[matrixId]) no_mem_exit("FinalizeGFV: matrix_element_rec[matrixId]");
+
+      for (j = 0; j < num_matrices_vec[matrixId]; j++)
+      {
+        matrix_element_rec[matrixId][j] = (double**) calloc((matrix_height_vec[matrixId]), sizeof(double*));
+        if (!matrix_element_rec[matrixId][j]) no_mem_exit("FinalizeGFV: matrix_element_rec[matrixId][j]");
+
+        for (k = 0; k < matrix_height_vec[matrixId]; k++)
+        {
+          matrix_element_rec[matrixId][j][k] = (double*) calloc((matrix_width_vec[matrixId]), sizeof(double));
+          if (!matrix_element_rec[matrixId][j][k]) no_mem_exit("FinalizeGFV: matrix_element_rec[matrixId][j][k]");
+
+          for (l = 0; l < matrix_width_vec[matrixId]; l++)
+          {
+            // absolute matrix
+            if (!sei->gfv_matrix_pred_flag)
+            {
+              cur_matrix_element_abs = fabs(sei->gfv_matrix_element[matrixId][j][k][l]);
+              cur_matrix_element_abs_int = (int)(cur_matrix_element_abs);
+              // CHECK: The value of gfv_matrix_element_int[ i ][ j ][ k ][ m ] shall be in the range of 0 to 2^(32) - 2, inclusive
+              assert( cur_matrix_element_abs_int >= 0 && cur_matrix_element_abs_int <= (4294967296 - 2) );
+              write_ue_v("SEI: gfv_matrix_element_int", cur_matrix_element_abs_int, bitstream);
+
+              cur_matrix_element_abs_decimal = cur_matrix_element_abs - cur_matrix_element_abs_int;
+              assert( cur_matrix_element_abs_decimal >= 0 );
+              cur_matrix_element_abs_dec_int_value = iClip3(0, (1 << sei->gfv_matrix_element_precision_factor) - 1, (int)(cur_matrix_element_abs_decimal * (1 << sei->gfv_matrix_element_precision_factor) + 0.5));
+              write_u_v(sei->gfv_matrix_element_precision_factor, "SEI: gfv_matrix_element_dec", cur_matrix_element_abs_dec_int_value, bitstream);
+
+              signflag_matrix_element = (sei->gfv_matrix_element[matrixId][j][k][l] < 0) ? TRUE : FALSE;
+              if (cur_matrix_element_abs_int || cur_matrix_element_abs_dec_int_value)
+              {
+                write_u_1("SEI: gfv_matrix_element_sign_flag", signflag_matrix_element, bitstream);
+              }
+
+              matrix_element_abs_rec = (double)(cur_matrix_element_abs_int + (((double)cur_matrix_element_abs_dec_int_value) / (1 << sei->gfv_matrix_element_precision_factor)));
+              matrix_element_rec[matrixId][j][k][l] = signflag_matrix_element ? -matrix_element_abs_rec : matrix_element_abs_rec;
+            }
+            // inter-frame difference
+            else
+            {
+              cur_matrix_element_abs = fabs(sei->gfv_matrix_element[matrixId][j][k][l] - (sei->gfv_cnt== 0 ? base_matrix_rec[matrixId][j][k][l] : prev_matrix_rec[matrixId][j][k][l]));
+              cur_matrix_element_abs_int = (int)(cur_matrix_element_abs);
+              write_ue_v("SEI: gfv_matrix_delta_element_int", cur_matrix_element_abs_int, bitstream);
+
+              cur_matrix_element_abs_decimal = cur_matrix_element_abs - cur_matrix_element_abs_int;
+              assert( cur_matrix_element_abs_decimal >= 0 );
+              cur_matrix_element_abs_dec_int_value = (int)(cur_matrix_element_abs_decimal * (1 << sei->gfv_matrix_element_precision_factor) + 0.5);
+              write_ue_v("SEI: gfv_matrix_delta_element_dec", cur_matrix_element_abs_dec_int_value, bitstream);
+
+              signflag_matrix_element = ((sei->gfv_matrix_element[matrixId][j][k][l] - (sei->gfv_cnt == 0 ? base_matrix_rec[matrixId][j][k][l] : prev_matrix_rec[matrixId][j][k][l])) < 0) ? TRUE : FALSE;
+              if (cur_matrix_element_abs_int || cur_matrix_element_abs_dec_int_value)
+              {
+                write_u_1("SEI: gfv_matrix_delta_element_sign_flag", signflag_matrix_element, bitstream);
+              }
+
+              matrix_element_abs_rec = (double)(cur_matrix_element_abs_int + (((double)cur_matrix_element_abs_dec_int_value) / (1 << sei->gfv_matrix_element_precision_factor)));
+              matrix_element_rec[matrixId][j][k][l] = ((signflag_matrix_element ? -matrix_element_abs_rec : matrix_element_abs_rec) + (sei->gfv_cnt == 0 ? base_matrix_rec[matrixId][j][k][l] : prev_matrix_rec[matrixId][j][k][l]));
+            }
+#ifdef PRINT_GFV_INFO
+            printf("%d (%d) ", cur_matrix_element_abs_int, cur_matrix_element_abs_dec_int_value);
+#endif
+          }
+        }
+      }
+    }
+#ifdef PRINT_GFV_INFO
+    printf("\n");
+#endif
+
+    if (do_update_gfv_matrix)
+    {
+      for (matrixId = 0; matrixId < sei->gfv_num_matrix_type; matrixId++) 
+      {
+        for (j = 0; j < num_matrices_vec[matrixId]; j++) 
+        {
+          for (k = 0; k < matrix_height_vec[matrixId]; k++) 
+          {
+            for (l = 0; l < matrix_width_vec[matrixId]; l++) 
+            {
+              prev_matrix_rec[matrixId][j][k][l] = matrix_element_rec[matrixId][j][k][l];
+              if (basePicFlag) 
+              {
+                base_matrix_rec[matrixId][j][k][l] = matrix_element_rec[matrixId][j][k][l];
+              }
+            }
+          }
+        }
+      }
+      if (basePicFlag)
+      {
+        for (matrixId = 0; matrixId < sei->gfv_num_matrix_type; matrixId++) {
+          base_num_matrices_vec[matrixId] = num_matrices_vec[matrixId];
+          base_matrix_height_vec[matrixId] = matrix_height_vec[matrixId];
+          base_matrix_width_vec[matrixId] = matrix_width_vec[matrixId];
+        }
+      }
+      do_update_gfv_matrix = FALSE;
+    }
+    else
+    {
+      do_update_gfv_matrix = TRUE;
+    }
+  }
+
+  if (sei->gfv_nn_present_flag)
+  {
+    if (sei->gfv_nn_mode_idc == 0)
+    {
+      // Byte alignment
+      while (!(bitstream->bits_to_go==8))
+      {
+        write_u_1("SEI: gfv_nn_alignment_zero_bit_b", 0, bitstream);
+      }
+      for (long p = 0; p < sei->gfv_payload_length; p++)
+      {
+        write_u_v(8, "SEI: gfv_nn_payload_byte[i]", sei->gfv_payload_byte[p], bitstream);
+      }
+    }
+  }
+
+  // make sure the payload is byte aligned, stuff bits are 10..0
+  if ( bitstream->bits_to_go != 8 )
+  {
+    (bitstream->byte_buf) <<= 1;
+    bitstream->byte_buf |= 1;
+    bitstream->bits_to_go--;
+    if ( bitstream->bits_to_go != 0 ) 
+      (bitstream->byte_buf) <<= (bitstream->bits_to_go);
+    bitstream->bits_to_go = 8;
+    bitstream->streamBuffer[bitstream->byte_pos++]=bitstream->byte_buf;
+    bitstream->byte_buf = 0;
+  }
+  sei->payloadSize = bitstream->byte_pos;
+
+  // Free allocated memory
+  if (matrix_element_rec) 
+  {
+    for (matrixId = 0; matrixId < sei->gfv_num_matrix_type; matrixId++)
+    {
+      if (matrix_element_rec[matrixId])
+      {
+        for (j = 0; j < num_matrices_vec[matrixId]; j++)
+        {
+          if (matrix_element_rec[matrixId][j])
+          {
+            for (k = 0; k < matrix_height_vec[matrixId]; k++)
+            {
+              if (matrix_element_rec[matrixId][j][k]) 
+              {
+                free(matrix_element_rec[matrixId][j][k]);
+              }
+            }
+            free(matrix_element_rec[matrixId][j]);
+          }
+        }
+        free(matrix_element_rec[matrixId]);
+      }
+    }
+    free(matrix_element_rec);
+  }
+
+  if (coordinate_x_rec) free(coordinate_x_rec);
+  if (coordinate_y_rec) free(coordinate_y_rec);
+  if (coordinate_z_rec) free(coordinate_z_rec);
+  
+  if (matrix_width_vec) free(matrix_width_vec);
+  if (matrix_height_vec) free(matrix_height_vec);
+  if (num_matrices_vec) free(num_matrices_vec);
+
+#ifdef PRINT_GFV_INFO
+  printf("FinalizeGFV, finish idx %u\n", gfv_idx);
+#endif
+}
+
+
+void UpdateGFV(SEIParameters *p_SEI, InputParameters *p_Inp) 
+{
+#ifdef PRINT_GFV_INFO
+  printf("UpdateGFV, start\n");
+#endif
+
+  // uncomment to update SEI to another configuration
+  // sprintf(p_Inp->GFVFile, "cfg/generative_face_video3.cfg");
+
+  // read GFV config from file
+  ParseGFVConfigFile(p_SEI, p_Inp, p_SEI->seiGFV);
+  
+  // all initialized, set GFV presence to true
+  p_SEI->seiHasGFV_info = TRUE;
+
+#ifdef PRINT_GFV_INFO
+    printf("UpdateGFV, finish\n");
+#endif
+}
+#endif
+
+#if JVET_AK0239_GFVE_SEI
+/*
+ ************************************************************************
+ *  \functions on Generative Face Video Enhancement (GFVE) SEI message
+ *  \brief
+ *    Based on JVET-AK0239
+ *  \author
+ *    Jing Yuan Thong                  <jingyuan.thong@sg.panasonic.com>
+ ************************************************************************
+ */
+
+static int ParseGFVEConfigFile(SEIParameters *p_SEI, InputParameters *p_Inp, generative_face_video_enhancement_struct *pSeiGFVE)
+{
+  // loop counters
+  unsigned int gfve_idx;
+  unsigned int i, j, k;
+
+  // array buffers
+  int ret;
+  FILE* fp;
+  char buf[4096];
+  char temp[4096];
+  memset(temp, 0, sizeof(temp));
+  
+  // tmp int and double for reading from cfg file
+  unsigned int tmp_int;
+  double tmp_double;
+
+  // for matrix elements
+  unsigned int matrixWidth = 0;
+  unsigned int matrixHeight = 0;
+  unsigned int numMatrices = 0;
+
+  printf ("Parsing GFVE cfg file %s ..........\n\n", p_Inp->GFVEFile);
+  if ((fp = fopen(p_Inp->GFVEFile, "r")) == NULL) 
+  {
+    fprintf(stderr, "GFVE config file %s is not found, disable GFVE SEI\n", p_Inp->GFVEFile);
+    p_SEI->seiHasGFVE_info = FALSE;
+    p_SEI->gfve_num_sei = 0;
+    return 1;
+  }
+  
+  //read the GFVE config file
+  while (fscanf(fp, "%s", buf) != EOF) 
+  {
+    ret = 1;
+    if (strcmp(buf, "gfve_number") == 0) 
+    {
+      ret = fscanf(fp, " = %u\n", &(p_SEI->gfve_num_sei));
+      for (gfve_idx = 0; gfve_idx < p_SEI->gfve_num_sei; gfve_idx++)
+      {
+        pSeiGFVE[gfve_idx].gfve_number = p_SEI->gfve_num_sei;
+        pSeiGFVE[gfve_idx].gfve_current_id = gfve_idx;
+      }
+#ifdef PRINT_GFVE_INFO
+      printf("gfve_number = %u\n", pSeiGFVE[0].gfve_number);
+      printf("ret = %u\n", ret);
+#endif
+    }
+    else if (strcmp(buf, "gfve_base_pic_flag") == 0) 
+    {
+      ret = fscanf(fp, " = %u\n", &tmp_int);
+      for (gfve_idx = 0; gfve_idx < p_SEI->gfve_num_sei; gfve_idx++)
+      {
+        pSeiGFVE[gfve_idx].gfve_base_pic_flag = tmp_int ? TRUE : FALSE;
+      }
+#ifdef PRINT_GFVE_INFO
+      printf("gfve_base_pic_flag = %u\n", tmp_int);
+      printf("ret = %u\n", ret);
+#endif
+    }
+    else if (strcmp(buf, "gfve_nn_present_flag") == 0) 
+    {
+      ret = fscanf(fp, " = %u\n", &tmp_int);
+      for (gfve_idx = 0; gfve_idx < p_SEI->gfve_num_sei; gfve_idx++)
+      {
+        pSeiGFVE[gfve_idx].gfve_nn_present_flag = tmp_int ? TRUE : FALSE;
+      }
+#ifdef PRINT_GFVE_INFO
+      printf("gfve_nn_present_flag = %u\n", tmp_int);
+      printf("ret = %u\n", ret);
+#endif
+    }
+    else if (strcmp(buf, "gfve_nn_mode_idc") == 0) {
+      ret = fscanf(fp, " = %u\n", &tmp_int);
+      for (gfve_idx = 0; gfve_idx < p_SEI->gfve_num_sei; gfve_idx++)
+      {
+        pSeiGFVE[gfve_idx].gfve_nn_mode_idc = tmp_int;
+      }
+#ifdef PRINT_GFVE_INFO
+      printf("gfve_nn_mode_idc = %u\n", tmp_int);
+      printf("ret = %u\n", ret);
+#endif
+    }
+    else if (strcmp(buf, "gfve_nn_tag_uri") == 0) {
+      ret = fscanf(fp, " = %s\n", temp);
+      for (gfve_idx = 0; gfve_idx < p_SEI->gfve_num_sei; gfve_idx++)
+      {
+        // prevent buffer overflow
+        strncpy(pSeiGFVE[gfve_idx].gfve_nn_tag_uri, temp, sizeof(pSeiGFVE[gfve_idx].gfve_nn_tag_uri) - 1);
+        pSeiGFVE[gfve_idx].gfve_nn_tag_uri[sizeof(pSeiGFVE[gfve_idx].gfve_nn_tag_uri) - 1] = '\0';
+      }
+#ifdef PRINT_GFVE_INFO
+      printf("gfve_nn_tag_uri = %s\n", temp);
+      printf("ret = %u\n", ret);
+#endif
+      memset(temp, 0, sizeof(temp));
+    }
+    else if (strcmp(buf, "gfve_nn_uri") == 0) {
+      ret = fscanf(fp, " = %s\n", temp);
+      for (gfve_idx = 0; gfve_idx < p_SEI->gfve_num_sei; gfve_idx++)
+      {
+        // prevent buffer overflow
+        strncpy(pSeiGFVE[gfve_idx].gfve_nn_uri, temp, sizeof(pSeiGFVE[gfve_idx].gfve_nn_uri) - 1);
+        pSeiGFVE[gfve_idx].gfve_nn_uri[sizeof(pSeiGFVE[gfve_idx].gfve_nn_uri) - 1] = '\0';
+      }
+#ifdef PRINT_GFVE_INFO
+      printf("gfve_nn_uri = %s\n", temp);
+      printf("ret = %u\n", ret);
+#endif
+      memset(temp, 0, sizeof(temp));
+    }
+    else if (strcmp(buf, "gfve_payload_filename") == 0) 
+    {
+      ret = fscanf(fp, " = %4095[^\n]\n", temp);
+#ifdef PRINT_GFVE_INFO
+      printf("gfve_payload_filename = %s\n", temp);
+#endif
+      for (gfve_idx = 0; gfve_idx < p_SEI->gfve_num_sei; gfve_idx++) 
+      {
+        if (pSeiGFVE[gfve_idx].gfve_nn_present_flag)
+        {
+          if (pSeiGFVE[gfve_idx].gfve_nn_mode_idc == 0)
+          {
+            FILE* file;
+            if ((file = fopen(temp, "rb")) == NULL) 
+            {
+              fprintf(stderr, "GFVE NN payload file %s is not found.\n", temp);
+              return 1;
+            }
+  
+            if (fseek(file, 0, SEEK_END) != 0) {
+              fclose(file);
+              return -1;
+            }
+  
+            long payload_size = ftell(file);
+            if (payload_size == -1) {
+              fclose(file);
+              return -1;
+            }
+            rewind(file);
+
+            pSeiGFVE[gfve_idx].gfve_payload_length = payload_size;
+  
+            pSeiGFVE[gfve_idx].gfve_payload_byte = malloc(payload_size);
+            if (!pSeiGFVE[gfve_idx].gfve_payload_byte) {
+              no_mem_exit("ParseGFVEConfigFile: alloc gfve_payload_byte");
+            }
+
+            size_t bytes_read = fread(pSeiGFVE[gfve_idx].gfve_payload_byte, 1, payload_size, file);
+            if (bytes_read != (size_t)payload_size) {
+                free(pSeiGFVE[gfve_idx].gfve_payload_byte);
+                pSeiGFVE[gfve_idx].gfve_payload_byte = NULL;
+                fclose(file);
+                return -1;
+            }
+
+            fclose(file);
+          }
+        }
+      }
+#ifdef PRINT_GFVE_INFO     
+      printf("ret = %u\n", ret);
+#endif
+    }
+    else if (strcmp(buf, "gfve_id") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVEConfigFile: error parsing gfve_id", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFVE_INFO
+      printf("gfve_id = ");
+#endif
+      for (gfve_idx = 0; gfve_idx < p_SEI->gfve_num_sei; gfve_idx++)
+      {
+        ret &= fscanf(fp, "%u", &(pSeiGFVE[gfve_idx].gfve_id));
+#ifdef PRINT_GFVE_INFO
+        printf("%u ", pSeiGFVE[gfve_idx].gfve_id);
+#endif
+      }
+#ifdef PRINT_GFVE_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfve_gfv_id") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVEConfigFile: error parsing gfve_gfv_id", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFVE_INFO
+      printf("gfve_gfv_id = ");
+#endif
+      for (gfve_idx = 0; gfve_idx < p_SEI->gfve_num_sei; gfve_idx++)
+      {
+        ret &= fscanf(fp, "%u", &(pSeiGFVE[gfve_idx].gfve_gfv_id));
+#ifdef PRINT_GFVE_INFO
+        printf("%u ", pSeiGFVE[gfve_idx].gfve_gfv_id);
+#endif
+      }
+#ifdef PRINT_GFVE_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfve_gfv_cnt") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVEConfigFile: error parsing gfve_gfv_cnt", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFVE_INFO
+      printf("gfve_gfv_cnt = ");
+#endif
+      for (gfve_idx = 0; gfve_idx < p_SEI->gfve_num_sei; gfve_idx++)
+      {
+        ret &= fscanf(fp, "%u", &(pSeiGFVE[gfve_idx].gfve_gfv_cnt));
+#ifdef PRINT_GFVE_INFO
+        printf("%u ", pSeiGFVE[gfve_idx].gfve_gfv_cnt);
+#endif
+      }
+#ifdef PRINT_GFVE_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfve_matrix_present_flag") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVEConfigFile: error parsing gfve_matrix_present_flag", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFVE_INFO
+      printf("gfve_matrix_present_flag = ");
+#endif
+      for (gfve_idx = 0; gfve_idx < p_SEI->gfve_num_sei; gfve_idx++)
+      {
+        ret &= fscanf(fp, "%u", &tmp_int);
+        pSeiGFVE[gfve_idx].gfve_matrix_present_flag = tmp_int ? TRUE : FALSE;
+#ifdef PRINT_GFVE_INFO
+        printf("%u ", pSeiGFVE[gfve_idx].gfve_matrix_present_flag);
+#endif
+      }
+#ifdef PRINT_GFVE_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfve_matrix_pred_flag") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVEConfigFile: error parsing gfve_matrix_pred_flag", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFVE_INFO
+      printf("gfve_matrix_pred_flag = ");
+#endif
+      for (gfve_idx = 0; gfve_idx < p_SEI->gfve_num_sei; gfve_idx++)
+      {
+        ret &= fscanf(fp, "%u", &tmp_int);
+        pSeiGFVE[gfve_idx].gfve_matrix_pred_flag = tmp_int ? TRUE : FALSE;
+#ifdef PRINT_GFVE_INFO
+        printf("%u ", pSeiGFVE[gfve_idx].gfve_matrix_pred_flag);
+#endif
+      }
+#ifdef PRINT_GFVE_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfve_matrix_element_precision_factor") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVEConfigFile: error parsing gfve_matrix_element_precision_factor", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFVE_INFO
+      printf("gfve_matrix_element_precision_factor = ");
+#endif
+      for (gfve_idx = 0; gfve_idx < p_SEI->gfve_num_sei; gfve_idx++)
+      {
+        ret &= fscanf(fp, "%u", &(pSeiGFVE[gfve_idx].gfve_matrix_element_precision_factor));
+#ifdef PRINT_GFVE_INFO
+        printf("%u ", pSeiGFVE[gfve_idx].gfve_matrix_element_precision_factor);
+#endif
+      }
+#ifdef PRINT_GFVE_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfve_num_matrices") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVEConfigFile: error parsing gfve_num_matrices", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFVE_INFO
+      printf("gfve_num_matrices = ");
+#endif
+      for (gfve_idx = 0; gfve_idx < p_SEI->gfve_num_sei; gfve_idx++)
+      {
+        ret &= fscanf(fp, "%u", &(pSeiGFVE[gfve_idx].gfve_num_matrices));
+#ifdef PRINT_GFVE_INFO
+        printf("%u ", pSeiGFVE[gfve_idx].gfve_num_matrices);
+#endif
+        if (pSeiGFVE[gfve_idx].gfve_matrix_present_flag && pSeiGFVE[gfve_idx].gfve_num_matrices > 0)
+        {
+          pSeiGFVE[gfve_idx].gfve_matrix_width = calloc((pSeiGFVE[gfve_idx].gfve_num_matrices), sizeof(unsigned int));
+          if (!pSeiGFVE[gfve_idx].gfve_matrix_width) {
+            no_mem_exit("ParseGFVEConfigFile: alloc gfve_matrix_width");
+          }
+          pSeiGFVE[gfve_idx].gfve_matrix_height = calloc((pSeiGFVE[gfve_idx].gfve_num_matrices), sizeof(unsigned int));
+          if (!pSeiGFVE[gfve_idx].gfve_matrix_height) {
+            no_mem_exit("ParseGFVEConfigFile: alloc gfve_matrix_height");
+          }
+          pSeiGFVE[gfve_idx].gfve_matrix_element = (double***) calloc((pSeiGFVE[gfve_idx].gfve_num_matrices), sizeof(double**));
+          if (!pSeiGFVE[gfve_idx].gfve_matrix_element) {
+            no_mem_exit("ParseGFVEConfigFile: alloc gfve_matrix_element");
+          }
+        }
+      }
+#ifdef PRINT_GFVE_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfve_matrix_width") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVEConfigFile: error parsing gfve_matrix_width", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFVE_INFO
+      printf("gfve_matrix_width = ");
+#endif
+      for (gfve_idx = 0; gfve_idx < p_SEI->gfve_num_sei; gfve_idx++)
+      {
+        if (pSeiGFVE[gfve_idx].gfve_matrix_present_flag)
+        {
+          for (i = 0; i < pSeiGFVE[gfve_idx].gfve_num_matrices; i++)
+          {
+            ret &= fscanf(fp, "%u", &tmp_int);
+            pSeiGFVE[gfve_idx].gfve_matrix_width[i] = tmp_int;
+#ifdef PRINT_GFVE_INFO
+            printf("%u ", pSeiGFVE[gfve_idx].gfve_matrix_width[i]);
+#endif
+          }
+        }
+      }
+#ifdef PRINT_GFVE_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfve_matrix_height") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVEConfigFile: error parsing gfve_matrix_height", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFVE_INFO
+      printf("gfve_matrix_height = ");
+#endif
+      for (gfve_idx = 0; gfve_idx < p_SEI->gfve_num_sei; gfve_idx++)
+      {
+        if (pSeiGFVE[gfve_idx].gfve_matrix_present_flag)
+        {
+          for (i = 0; i < pSeiGFVE[gfve_idx].gfve_num_matrices; i++)
+          {
+            ret &= fscanf(fp, "%u", &tmp_int);
+            pSeiGFVE[gfve_idx].gfve_matrix_height[i] = tmp_int;
+#ifdef PRINT_GFV_INFO
+            printf("%u ", pSeiGFVE[gfve_idx].gfve_matrix_height[i]);
+#endif
+          }
+        }
+      }
+#ifdef PRINT_GFVE_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfve_matrix_element") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVEConfigFile: error parsing gfve_matrix_element", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFVE_INFO
+      printf("gfve_matrix_element = ");
+#endif
+      for (gfve_idx = 0; gfve_idx < p_SEI->gfve_num_sei; gfve_idx++)
+      {
+        if (pSeiGFVE[gfve_idx].gfve_matrix_present_flag)
+        {
+          numMatrices = pSeiGFVE[gfve_idx].gfve_num_matrices;
+          // over each matrix
+          for (i = 0; i < numMatrices; i++)
+          {
+            matrixHeight = pSeiGFVE[gfve_idx].gfve_matrix_height[i];
+            matrixWidth = pSeiGFVE[gfve_idx].gfve_matrix_width[i];
+            
+            // malloc for matrixHeight
+            pSeiGFVE[gfve_idx].gfve_matrix_element[i] = (double**) calloc((matrixHeight), sizeof(double*));
+            if (!pSeiGFVE[gfve_idx].gfve_matrix_element[i]) {
+              no_mem_exit("ParseGFVEConfigFile: alloc gfve_matrix_element, matrixHeight");
+            }
+
+            // over matrixHeight
+            for (j = 0; j < matrixHeight; j++)
+            {
+              // malloc for matrixWidth
+              pSeiGFVE[gfve_idx].gfve_matrix_element[i][j] = (double*) calloc((matrixWidth), sizeof(double));
+              if (!pSeiGFVE[gfve_idx].gfve_matrix_element[i][j]) {
+                no_mem_exit("ParseGFVEConfigFile: alloc gfve_matrix_element, matrixWidth");
+              }
+
+              // over matrixWidth
+              for (k = 0; k < matrixWidth; k++)
+              {
+                ret &= fscanf(fp, "%lf", &tmp_double);
+                pSeiGFVE[gfve_idx].gfve_matrix_element[i][j][k] = tmp_double;
+#ifdef PRINT_GFVE_INFO
+                printf("%lf ", pSeiGFVE[gfve_idx].gfve_matrix_element[i][j][k]);
+#endif
+              }
+            }
+          }
+        }
+      }
+#ifdef PRINT_GFVE_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfve_pupil_present_idx") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVEConfigFile: error parsing gfve_pupil_present_idx", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFVE_INFO
+      printf("gfve_pupil_present_idx = ");
+#endif
+      for (gfve_idx = 0; gfve_idx < p_SEI->gfve_num_sei; gfve_idx++)
+      {
+        ret &= fscanf(fp, "%u", &(pSeiGFVE[gfve_idx].gfve_pupil_present_idx));
+#ifdef PRINT_GFVE_INFO
+        printf("%u ", pSeiGFVE[gfve_idx].gfve_pupil_present_idx);
+#endif
+      }
+#ifdef PRINT_GFVE_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfve_pupil_coordinate_precision_factor") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVEConfigFile: error parsing gfve_pupil_coordinate_precision_factor", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFVE_INFO
+      printf("gfve_pupil_coordinate_precision_factor = ");
+#endif
+      for (gfve_idx = 0; gfve_idx < p_SEI->gfve_num_sei; gfve_idx++)
+      {
+        ret &= fscanf(fp, "%u", &(pSeiGFVE[gfve_idx].gfve_pupil_coordinate_precision_factor));
+#ifdef PRINT_GFVE_INFO
+        printf("%u ", pSeiGFVE[gfve_idx].gfve_pupil_coordinate_precision_factor);
+#endif
+      }
+#ifdef PRINT_GFVE_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfve_pupil_left_eye_coordinate_x") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVEConfigFile: error parsing gfve_pupil_left_eye_coordinate_x", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFVE_INFO
+      printf("gfve_pupil_left_eye_coordinate_x = ");
+#endif
+      for (gfve_idx = 0; gfve_idx < p_SEI->gfve_num_sei; gfve_idx++)
+      {
+        ret &= fscanf(fp, "%lf", &(pSeiGFVE[gfve_idx].gfve_pupil_left_eye_coordinate_x));
+#ifdef PRINT_GFVE_INFO
+        printf("%lf ", pSeiGFVE[gfve_idx].gfve_pupil_left_eye_coordinate_x);
+#endif
+      }
+#ifdef PRINT_GFVE_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfve_pupil_left_eye_coordinate_y") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVEConfigFile: error parsing gfve_pupil_left_eye_coordinate_y", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFVE_INFO
+      printf("gfve_pupil_left_eye_coordinate_y = ");
+#endif
+      for (gfve_idx = 0; gfve_idx < p_SEI->gfve_num_sei; gfve_idx++)
+      {
+        ret &= fscanf(fp, "%lf", &(pSeiGFVE[gfve_idx].gfve_pupil_left_eye_coordinate_y));
+#ifdef PRINT_GFVE_INFO
+        printf("%lf ", pSeiGFVE[gfve_idx].gfve_pupil_left_eye_coordinate_y);
+#endif
+      }
+#ifdef PRINT_GFVE_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfve_pupil_right_eye_coordinate_x") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVEConfigFile: error parsing gfve_pupil_right_eye_coordinate_x", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFVE_INFO
+      printf("gfve_pupil_right_eye_coordinate_x = ");
+#endif
+      for (gfve_idx = 0; gfve_idx < p_SEI->gfve_num_sei; gfve_idx++)
+      {
+        ret &= fscanf(fp, "%lf", &(pSeiGFVE[gfve_idx].gfve_pupil_right_eye_coordinate_x));
+#ifdef PRINT_GFVE_INFO
+        printf("%lf ", pSeiGFVE[gfve_idx].gfve_pupil_right_eye_coordinate_x);
+#endif
+      }
+#ifdef PRINT_GFVE_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+    else if (strcmp(buf, "gfve_pupil_right_eye_coordinate_y") == 0) 
+    {
+      ret = fscanf(fp, " = ");
+      if (ret != 0)
+      {
+        error ("ParseGFVEConfigFile: error parsing gfve_pupil_right_eye_coordinate_y", 500);
+      }
+      ret = 1;
+#ifdef PRINT_GFVE_INFO
+      printf("gfve_pupil_right_eye_coordinate_y = ");
+#endif
+      for (gfve_idx = 0; gfve_idx < p_SEI->gfve_num_sei; gfve_idx++)
+      {
+        ret &= fscanf(fp, "%lf", &(pSeiGFVE[gfve_idx].gfve_pupil_right_eye_coordinate_y));
+#ifdef PRINT_GFVE_INFO
+        printf("%lf ", pSeiGFVE[gfve_idx].gfve_pupil_right_eye_coordinate_y);
+#endif
+      }
+#ifdef PRINT_GFVE_INFO
+      printf("\n");
+      printf("ret = %u\n", ret);
+#endif
+      ret = (ret == 1);
+    }
+
+    else
+    {
+      // read till the line end 
+      if (NULL == fgets(buf, sizeof(buf), fp))
+      {
+        error ("ParseGFVConfigFile: error parsing GFVE config file, fgets returns null",500);
+      }
+    }
+    if (ret != 1)
+    {
+      error ("ParseGFVConfigFile: error parsing GFVE config file, format error",500);
+    }
+  }
+
+  fclose(fp);
+
+  return 0;
+}
+
+static void InitGFVE(SEIParameters *p_SEI, InputParameters *p_Inp) 
+{
+  if (p_Inp->GFVESEIPresentFlag == 0)
+  {
+    p_SEI->seiHasGFVE_info = FALSE;
+    p_SEI->gfve_num_sei = 0;
+    return;
+  }
+
+#ifdef PRINT_GFVE_INFO
+  printf("InitGFVE, start\n");
+#endif
+  
+  for (int gfve_idx = 0; gfve_idx < MAX_NUM_GFV_CNT; gfve_idx++)
+  {
+    p_SEI->seiGFVE[gfve_idx].data = malloc( sizeof(Bitstream) );
+    if( p_SEI->seiGFVE[gfve_idx].data == NULL ) no_mem_exit("InitGFVE: seiGFVE[i].data");
+    p_SEI->seiGFVE[gfve_idx].data->streamBuffer = malloc(MAXRTPPAYLOADLEN);
+    if( p_SEI->seiGFVE[gfve_idx].data->streamBuffer == NULL ) no_mem_exit("InitGFVE: seiGFVE[i].data->streamBuffer");
+  }
+  
+  ClearGFVE(p_SEI);
+
+  // read GFVE config from file
+  ParseGFVEConfigFile(p_SEI, p_Inp, p_SEI->seiGFVE);
+  
+  // all initialized, set GFVE presence to true
+  p_SEI->seiHasGFVE_info = TRUE;
+
+#ifdef PRINT_GFVE_INFO
+  printf("InitGFVE, finish with %u SEI\n", p_SEI->gfve_num_sei);
+#endif
+}
+
+static void ClearGFVE(SEIParameters *p_SEI) 
+{
+#ifdef PRINT_GFVE_INFO
+  printf("ClearGFVE, start\n");
+#endif
+  for (int gfve_idx = 0; gfve_idx < MAX_NUM_GFV_CNT; gfve_idx++)
+  {
+    memset( p_SEI->seiGFVE[gfve_idx].data->streamBuffer, 0, MAXRTPPAYLOADLEN);
+    p_SEI->seiGFVE[gfve_idx].data->bits_to_go  = 8;
+    p_SEI->seiGFVE[gfve_idx].data->byte_pos    = 0;
+    p_SEI->seiGFVE[gfve_idx].data->byte_buf    = 0;
+    p_SEI->seiGFVE[gfve_idx].payloadSize       = 0;
+
+    
+    p_SEI->seiGFVE[gfve_idx].gfve_number = 0;
+    p_SEI->seiGFVE[gfve_idx].gfve_current_id = 0;
+    p_SEI->seiGFVE[gfve_idx].gfve_base_pic_flag = TRUE;
+    p_SEI->seiGFVE[gfve_idx].gfve_nn_present_flag = FALSE;
+    p_SEI->seiGFVE[gfve_idx].gfve_nn_mode_idc = 1;
+    memset(p_SEI->seiGFVE[gfve_idx].gfve_nn_tag_uri, 0, sizeof(p_SEI->seiGFVE[gfve_idx].gfve_nn_tag_uri));
+    memset(p_SEI->seiGFVE[gfve_idx].gfve_nn_uri, 0, sizeof(p_SEI->seiGFVE[gfve_idx].gfve_nn_uri));
+   
+    p_SEI->seiGFVE[gfve_idx].gfve_id = 0;
+    p_SEI->seiGFVE[gfve_idx].gfve_gfv_id = 0;
+    p_SEI->seiGFVE[gfve_idx].gfve_gfv_cnt = 0;
+
+    p_SEI->seiGFVE[gfve_idx].gfve_matrix_present_flag = FALSE;
+    p_SEI->seiGFVE[gfve_idx].gfve_matrix_pred_flag = FALSE;
+    p_SEI->seiGFVE[gfve_idx].gfve_matrix_element_precision_factor = 0;
+    p_SEI->seiGFVE[gfve_idx].gfve_num_matrices = 0;
+
+    p_SEI->seiGFVE[gfve_idx].gfve_pupil_present_idx = 0;
+    p_SEI->seiGFVE[gfve_idx].gfve_pupil_coordinate_precision_factor = 0;
+    p_SEI->seiGFVE[gfve_idx].gfve_pupil_left_eye_coordinate_x = 0;
+    p_SEI->seiGFVE[gfve_idx].gfve_pupil_left_eye_coordinate_y = 0;
+    p_SEI->seiGFVE[gfve_idx].gfve_pupil_right_eye_coordinate_x = 0;
+    p_SEI->seiGFVE[gfve_idx].gfve_pupil_right_eye_coordinate_y = 0;
+
+    memset(p_SEI->seiGFVE[gfve_idx].gfve_payload_filename, 0, sizeof(p_SEI->seiGFVE[gfve_idx].gfve_payload_filename));
+    p_SEI->seiGFVE[gfve_idx].gfve_payload_length = 0;
+  }
+
+  p_SEI->seiHasGFVE_info = FALSE;
+  p_SEI->gfve_num_sei = 0;  
+
+#ifdef PRINT_GFVE_INFO
+  printf("ClearGFVE, finish\n");
+#endif
+}
+
+static void CloseGFVE(SEIParameters *p_SEI) 
+{
+  unsigned int matrixHeight = 0;
+  unsigned int numMatrices = 0;
+
+  int i, j;
+#ifdef PRINT_GFVE_INFO
+  printf("CloseGFVE, start\n");
+#endif
+
+  for (int gfve_idx = 0; gfve_idx < MAX_NUM_GFV_CNT; gfve_idx++)
+  {
+    if (p_SEI->seiGFVE[gfve_idx].data)
+    {
+      free(p_SEI->seiGFVE[gfve_idx].data->streamBuffer);
+      free(p_SEI->seiGFVE[gfve_idx].data);
+    }
+      
+    // free additional pointers in GFVE struct
+    if (p_SEI->seiGFVE[gfve_idx].gfve_matrix_element) 
+    {
+      numMatrices = p_SEI->seiGFVE[gfve_idx].gfve_num_matrices;
+      for (i = 0; i < numMatrices; i++)
+      {
+        matrixHeight = p_SEI->seiGFVE[gfve_idx].gfve_matrix_height[i];
+        if (p_SEI->seiGFVE[gfve_idx].gfve_matrix_element[i])
+        {
+          for (j = 0; j < matrixHeight; j++)
+          {
+            if (p_SEI->seiGFVE[gfve_idx].gfve_matrix_element[i][j])
+            {
+              free(p_SEI->seiGFVE[gfve_idx].gfve_matrix_element[i][j]);
+            }
+          }
+          free(p_SEI->seiGFVE[gfve_idx].gfve_matrix_element[i]);
+        }
+      }
+
+      free(p_SEI->seiGFVE[gfve_idx].gfve_matrix_element);
+      p_SEI->seiGFVE[gfve_idx].gfve_matrix_element = NULL;
+      
+      free(p_SEI->seiGFVE[gfve_idx].gfve_matrix_width);
+      p_SEI->seiGFVE[gfve_idx].gfve_matrix_width = NULL;
+
+      free(p_SEI->seiGFVE[gfve_idx].gfve_matrix_height);
+      p_SEI->seiGFVE[gfve_idx].gfve_matrix_height = NULL;
+    }
+
+    if (p_SEI->seiGFVE[gfve_idx].gfve_payload_byte)
+    {
+      free(p_SEI->seiGFVE[gfve_idx].gfve_payload_byte);
+      p_SEI->seiGFVE[gfve_idx].gfve_payload_byte = NULL;
+    }
+
+    // reset pointers to null
+    p_SEI->seiGFVE[gfve_idx].data = NULL;
+  }
+  p_SEI->seiHasGFVE_info = FALSE;
+  p_SEI->gfve_num_sei = 0;
+
+#ifdef PRINT_GFVE_INFO
+  printf("CloseGFVE, finish\n");
+#endif
+}
+
+static void FinalizeGFVE(SEIParameters *p_SEI, unsigned int gfve_idx)
+{
+  generative_face_video_enhancement_struct *sei = &p_SEI->seiGFVE[gfve_idx];
+  Bitstream *bitstream = sei->data;  
+
+  unsigned int matrixId, j, k;
+
+  unsigned int gfve_matrix_element_precision_factor_minus1, gfve_matrix_element_precision_factor;
+  unsigned int gfve_num_matrices_minus1, gfve_num_matrices;
+  unsigned int gfve_matrix_width_minus1;
+  unsigned int gfve_matrix_height_minus1;
+
+  double gfve_cur_matrix_element_abs, gfve_cur_matrix_element_abs_decimal;
+  int gfve_cur_matrix_element_abs_int, gfve_cur_matrix_element_abs_dec_int_value;
+  Boolean gfve_signflag_matrix_element;
+  double gfve_matrix_element_abs_rec;
+
+  double gfve_left_pupil_coordinate_x_rec = 0, gfve_left_pupil_coordinate_y_rec = 0;
+  double gfve_right_pupil_coordinate_x_rec = 0, gfve_right_pupil_coordinate_y_rec = 0;
+  double gfve_left_pupil_coordinate_x_ref = 0, gfve_left_pupil_coordinate_y_ref = 0;
+  double gfve_right_pupil_coordinate_x_ref = 0, gfve_right_pupil_coordinate_y_ref = 0;
+  unsigned int gfve_pupil_coordinate_precision_factor_minus1;
+  
+  // Arrays for matrices
+  unsigned int* gfve_matrix_width_vec = NULL;
+  unsigned int* gfve_matrix_height_vec = NULL;
+
+  // Matrix element
+  double*** gfve_matrix_element_rec = NULL;
+
+  // Base picture
+  Boolean gfve_basePicFlag = FALSE;
+
+#ifdef PRINT_GFVE_INFO
+  printf("FinalizeGFVE, start idx %u\n", gfve_idx);
+#endif
+
+  // start
+  write_ue_v("SEI: gfve_id", sei->gfve_id, bitstream);
+  write_ue_v("SEI: gfve_gfv_id", sei->gfve_gfv_id, bitstream);
+  write_ue_v("SEI: gfve_gfv_cnt", sei->gfve_gfv_cnt, bitstream);
+
+  // GFVE base picture
+  if (sei->gfve_gfv_cnt == 0)
+  {
+    write_u_1("SEI: gfve_base_picture_flag", sei->gfve_base_pic_flag, bitstream);
+    gfve_basePicFlag = sei->gfve_base_pic_flag;
+  }
+  else 
+  {
+    gfve_basePicFlag = FALSE;
+  }
+
+#ifdef PRINT_GFVE_INFO
+  printf("gfve_id = %u\n", sei->gfve_id);
+  printf("gfve_gfv_id = %u\n", sei->gfve_gfv_id);
+  printf("gfve_gfv_cnt = %u\n", sei->gfve_gfv_cnt);
+  printf("gfve_base_pic_flag = %u\n", gfve_basePicFlag);
+#endif  
+
+  if (gfve_basePicFlag)
+  {
+    write_u_1("SEI: gfve_nn_present_flag", sei->gfve_nn_present_flag, bitstream);
+    if (sei->gfve_nn_present_flag)
+    {
+      write_ue_v("SEI: gfve_mode_idc", sei->gfve_nn_mode_idc, bitstream);
+
+  #ifdef PRINT_GFVE_INFO
+      printf("gfve_nn_mode_idc = %u\n", sei->gfve_nn_mode_idc);
+  #endif
+
+      // Mode IDC 1 processing, to signal NN
+      if (sei->gfve_nn_mode_idc == 1) 
+      {
+        // Byte alignment
+        while (!(bitstream->bits_to_go==8))
+        {
+          write_u_1("SEI: gfve_nn_alignment_zero_bit_a", 0, bitstream);
+        }
+        // String fields
+        write_string("SEI: gfve_nn_tag_uri", sei->gfve_nn_tag_uri, bitstream);
+        write_string("SEI: gfve_nn_uri", sei->gfve_nn_uri, bitstream);
+
+  #ifdef PRINT_GFVE_INFO
+        printf("gfve_nn_tag_uri = %s\n", sei->gfve_nn_tag_uri);
+        printf("gfve_nn_uri = %s\n", sei->gfve_nn_uri);
+  #endif
+      }
+    }
+  }
+
+  // Matrix parameters
+
+  write_u_1("SEI: gfve_matrix_present_flag", sei->gfve_matrix_present_flag, bitstream);
+#ifdef PRINT_GFVE_INFO
+  printf("gfve_matrix_present_flag = %u\n", sei->gfve_matrix_present_flag);
+#endif
+  if (sei->gfve_matrix_present_flag) 
+  {
+    if (!gfve_basePicFlag)
+    {
+      write_u_1("SEI: gfve_matrix_pred_flag", sei->gfve_matrix_pred_flag, bitstream);
+#ifdef PRINT_GFVE_INFO
+      printf("gfve_matrix_pred_flag = %u\n", sei->gfve_matrix_pred_flag);
+#endif
+    }
+
+    if (gfve_basePicFlag)
+    {
+      // For base pic, free and reallocate base matrix info
+      if (base_gfve_matrix_width_vec) free(base_gfve_matrix_width_vec);
+      base_gfve_matrix_width_vec = (unsigned int*)malloc(sei->gfve_num_matrices * sizeof(unsigned int));
+      if (!base_gfve_matrix_width_vec) no_mem_exit("FinalizeGFVE: base_gfve_matrix_width_vec");
+      
+      if (base_gfve_matrix_height_vec) free(base_gfve_matrix_height_vec);
+      base_gfve_matrix_height_vec = (unsigned int*)malloc(sei->gfve_num_matrices * sizeof(unsigned int));
+      if (!base_gfve_matrix_height_vec) no_mem_exit("FinalizeGFVE: base_gfve_matrix_height_vec");
+    }
+
+    if (!sei->gfve_matrix_pred_flag)
+    {
+      gfve_matrix_element_precision_factor_minus1 = sei->gfve_matrix_element_precision_factor - 1;
+      // CHECK: The value of gfve_matrix_element_precision_factor_minus1 shall be in the range of 0 to 31, inclusive
+      assert( gfve_matrix_element_precision_factor_minus1 >= 0 && gfve_matrix_element_precision_factor_minus1 <= 31 );
+      write_ue_v("SEI: gfve_matrix_element_precision_factor_minus1", gfve_matrix_element_precision_factor_minus1, bitstream);
+
+      gfve_num_matrices_minus1 = sei->gfve_num_matrices - 1;
+      // CHECK: The value of gfve_num_matrices_minus1 shall be in the range of 0 to 2^(10) - 1, inclusive
+      assert( gfve_num_matrices_minus1 >= 0 && gfve_num_matrices_minus1 <= (1 << 10) - 1 );
+      write_ue_v("SEI: gfve_num_matrices_minus1", gfve_num_matrices_minus1, bitstream);
+
+      gfve_matrix_element_precision_factor = sei->gfve_matrix_element_precision_factor;
+      gfve_num_matrices = sei->gfve_num_matrices;
+
+      if (gfve_basePicFlag)
+      {
+        base_gfve_matrix_element_precision_factor = gfve_matrix_element_precision_factor;
+        base_gfve_num_matrices = gfve_num_matrices;
+      }
+
+#ifdef PRINT_GFVE_INFO
+      printf("gfve_matrix_element_precision_factor_minus1 = %u\n", gfve_matrix_element_precision_factor_minus1);
+      printf("gfve_num_matrices_minus1 = %u\n", gfve_num_matrices_minus1);
+#endif
+      
+      gfve_matrix_width_vec = (unsigned int*)malloc(sei->gfve_num_matrices * sizeof(unsigned int));
+      if (!gfve_matrix_width_vec) no_mem_exit("FinalizeGFVE: gfve_matrix_width_vec");
+      gfve_matrix_height_vec = (unsigned int*)malloc(sei->gfve_num_matrices * sizeof(unsigned int));
+      if (!gfve_matrix_height_vec) no_mem_exit("FinalizeGFVE: gfve_matrix_height_vec");
+
+      for (matrixId = 0; matrixId < sei->gfve_num_matrices; matrixId++)
+      {
+        gfve_matrix_height_minus1 = sei->gfve_matrix_height[matrixId] - 1;
+        write_ue_v("SEI: gfve_matrix_height_minus1", gfve_matrix_height_minus1, bitstream);
+        
+        gfve_matrix_width_minus1 = sei->gfve_matrix_width[matrixId] - 1;
+        write_ue_v("SEI: gfve_matrix_width_minus1", gfve_matrix_width_minus1, bitstream);
+      }
+    }
+    // Pred coding for matrix
+    else
+    {
+      if (!gfve_basePicFlag)
+      {
+        gfve_num_matrices = base_gfve_num_matrices;
+        gfve_matrix_element_precision_factor = base_gfve_matrix_element_precision_factor;
+      }
+      else
+      {
+        gfve_matrix_element_precision_factor = sei->gfve_matrix_element_precision_factor;
+        gfve_num_matrices = sei->gfve_num_matrices;
+
+        base_gfve_matrix_element_precision_factor = gfve_matrix_element_precision_factor;
+        base_gfve_num_matrices = gfve_num_matrices;
+      }
+
+      // Allocate memory for matrix info
+      gfve_matrix_width_vec = (unsigned int*)malloc(gfve_num_matrices * sizeof(unsigned int));
+      if (!gfve_matrix_width_vec) no_mem_exit("FinalizeGFVE: gfve_matrix_width_vec");
+      gfve_matrix_height_vec = (unsigned int*)malloc(gfve_num_matrices * sizeof(unsigned int));
+      if (!gfve_matrix_height_vec) no_mem_exit("FinalizeGFVE: gfve_matrix_height_vec");
+    }
+
+    if (gfve_basePicFlag)
+    {
+      for (matrixId = 0; matrixId < gfve_num_matrices; matrixId++) {
+          base_gfve_matrix_height_vec[matrixId] = sei->gfve_matrix_height[matrixId];
+          base_gfve_matrix_width_vec[matrixId] = sei->gfve_matrix_width[matrixId];
+        }
+    }
+    
+    if (sei->gfve_matrix_pred_flag)
+    {
+      for (matrixId = 0; matrixId < gfve_num_matrices; matrixId++)
+      {
+        gfve_matrix_height_vec[matrixId] = base_gfve_matrix_height_vec[matrixId];
+        gfve_matrix_width_vec[matrixId] = base_gfve_matrix_width_vec[matrixId];
+      }
+    }
+    else
+    {
+      for (matrixId = 0; matrixId < gfve_num_matrices; matrixId++)
+      {
+        gfve_matrix_height_vec[matrixId] = sei->gfve_matrix_height[matrixId];
+        gfve_matrix_width_vec[matrixId] = sei->gfve_matrix_width[matrixId];
+      }
+    }
+
+#ifdef PRINT_GFVE_INFO
+    printf("gfve_matrix_width = ");
+    for (matrixId = 0; matrixId < gfve_num_matrices; matrixId++)
+    {
+      printf("%u (%u) ", gfve_matrix_width_vec[matrixId], base_gfve_matrix_width_vec[matrixId]);
+    }
+    printf("\n");
+
+    printf("gfve_matrix_height = ");
+    for (matrixId = 0; matrixId < gfve_num_matrices; matrixId++)
+    {
+      printf("%u (%u) ", gfve_matrix_height_vec[matrixId], base_gfve_matrix_height_vec[matrixId]);
+    }
+    printf("\n");
+#endif
+
+    // For base pic, free and reallocate base matrix
+    if ( gfve_basePicFlag ) 
+    {
+      if ( base_gfve_matrix_rec )
+      {
+        for (matrixId = 0; matrixId < gfve_num_matrices; matrixId++)
+        {
+          for (j = 0; j < base_gfve_matrix_height_vec[matrixId]; j++)
+          {
+            free(base_gfve_matrix_rec[matrixId][j]);
+          }
+          free(base_gfve_matrix_rec[matrixId]);
+        }
+      }
+
+      if ( prev_gfve_matrix_rec )
+      {
+        for (matrixId = 0; matrixId < gfve_num_matrices; matrixId++)
+        {
+          for (j = 0; j < gfve_matrix_height_vec[matrixId]; j++)
+          {
+            free(prev_gfve_matrix_rec[matrixId][j]);
+          }
+          free(prev_gfve_matrix_rec[matrixId]);
+        }
+      }
+
+      base_gfve_matrix_rec = (double***) calloc((gfve_num_matrices), sizeof(double**));
+      if (!base_gfve_matrix_rec) no_mem_exit("FinalizeGFVE: base_gfve_matrix_rec");
+
+      for (matrixId = 0; matrixId < gfve_num_matrices; matrixId++)
+      {
+        base_gfve_matrix_rec[matrixId] = (double**) calloc((base_gfve_matrix_height_vec[matrixId]), sizeof(double*));
+        if (!base_gfve_matrix_rec[matrixId]) no_mem_exit("FinalizeGFVE: base_gfve_matrix_rec[matrixId]");
+
+        for (j = 0; j < base_gfve_matrix_height_vec[matrixId]; j++)
+        {
+          base_gfve_matrix_rec[matrixId][j] = (double*) calloc((base_gfve_matrix_width_vec[matrixId]), sizeof(double));
+          if (!base_gfve_matrix_rec[matrixId][j]) no_mem_exit("FinalizeGFVE: base_gfve_matrix_rec[matrixId][j]");
+        }
+      }
+
+      prev_gfve_matrix_rec = (double***) calloc((gfve_num_matrices), sizeof(double**));
+      if (!prev_gfve_matrix_rec) no_mem_exit("FinalizeGFVE: prev_gfve_matrix_rec");
+
+      for (matrixId = 0; matrixId < gfve_num_matrices; matrixId++)
+      {
+        prev_gfve_matrix_rec[matrixId] = (double**) calloc((gfve_matrix_height_vec[matrixId]), sizeof(double*));
+        if (!prev_gfve_matrix_rec[matrixId]) no_mem_exit("FinalizeGFVE: prev_gfve_matrix_rec[matrixId]");
+
+        for (j = 0; j < gfve_matrix_height_vec[matrixId]; j++)
+        {
+          prev_gfve_matrix_rec[matrixId][j] = (double*) calloc((gfve_matrix_width_vec[matrixId]), sizeof(double));
+          if (!prev_gfve_matrix_rec[matrixId][j]) no_mem_exit("FinalizeGFVE: prev_gfve_matrix_rec[matrixId][j]");
+        }
+      }
+    }
+
+    // Allocate 3D matrix element array
+    gfve_matrix_element_rec = (double***) calloc((gfve_num_matrices), sizeof(double**));
+    if (!gfve_matrix_element_rec) printf("FinalizeGFVE: gfve_matrix_element_rec");
+#ifdef PRINT_GFVE_INFO
+    printf("gfve_matrix_element_rec = ");
+#endif
+    for (matrixId = 0; matrixId < gfve_num_matrices; matrixId++)
+    {
+      gfve_matrix_element_rec[matrixId] = (double**) calloc((gfve_matrix_height_vec[matrixId]), sizeof(double*));
+      if (!gfve_matrix_element_rec[matrixId]) no_mem_exit("FinalizeGFVE: gfve_matrix_element_rec[matrixId]");
+
+      for (j = 0; j < gfve_matrix_height_vec[matrixId]; j++)
+      {
+        gfve_matrix_element_rec[matrixId][j] = (double*) calloc((gfve_matrix_width_vec[matrixId]), sizeof(double));
+        if (!gfve_matrix_element_rec[matrixId][j]) no_mem_exit("FinalizeGFVE: gfve_matrix_element_rec[matrixId][j]");
+
+        for (k = 0; k < gfve_matrix_width_vec[matrixId]; k++)
+        {
+          // absolute matrix
+          if (!sei->gfve_matrix_pred_flag)
+          {
+            gfve_cur_matrix_element_abs = fabs(sei->gfve_matrix_element[matrixId][j][k]);
+            gfve_cur_matrix_element_abs_int = (int)(gfve_cur_matrix_element_abs);
+            // CHECK: The value of gfve_matrix_element_int shall be in the range of 0 to 2^(32) - 2, inclusive"
+            assert( gfve_cur_matrix_element_abs_int >= 0 && gfve_cur_matrix_element_abs_int <= (4294967296 - 2) );
+            write_ue_v("SEI: gfve_matrix_element_int", gfve_cur_matrix_element_abs_int, bitstream);
+
+            gfve_cur_matrix_element_abs_decimal = gfve_cur_matrix_element_abs - gfve_cur_matrix_element_abs_int;
+            assert( gfve_cur_matrix_element_abs_decimal >= 0 );
+            gfve_cur_matrix_element_abs_dec_int_value = iClip3(0, (1 << gfve_matrix_element_precision_factor) - 1, (int)(gfve_cur_matrix_element_abs_decimal * (1 << gfve_matrix_element_precision_factor) + 0.5));
+            write_u_v(gfve_matrix_element_precision_factor, "SEI: gfve_matrix_element_dec", gfve_cur_matrix_element_abs_dec_int_value, bitstream);
+
+            gfve_signflag_matrix_element = (sei->gfve_matrix_element[matrixId][j][k] < 0) ? TRUE : FALSE;
+            if (gfve_cur_matrix_element_abs_int || gfve_cur_matrix_element_abs_dec_int_value)
+            {
+              write_u_1("SEI: gfve_matrix_element_sign_flag", gfve_signflag_matrix_element, bitstream);
+            }
+
+            gfve_matrix_element_abs_rec = (double)(gfve_cur_matrix_element_abs_int + (((double)gfve_cur_matrix_element_abs_dec_int_value) / (1 << gfve_matrix_element_precision_factor)));
+            gfve_matrix_element_rec[matrixId][j][k] = gfve_signflag_matrix_element ? -gfve_matrix_element_abs_rec : gfve_matrix_element_abs_rec;
+          }
+          // inter-frame difference
+          else
+          {
+            gfve_cur_matrix_element_abs = fabs(sei->gfve_matrix_element[matrixId][j][k] - (sei->gfve_gfv_cnt == 0 ? base_gfve_matrix_rec[matrixId][j][k] : prev_gfve_matrix_rec[matrixId][j][k]));
+            gfve_cur_matrix_element_abs_int = (int)(gfve_cur_matrix_element_abs);
+            // CHECK: The value of gfve_matrix_element_int shall be in the range of 0 to 2^(32) - 2, inclusive"
+            assert( gfve_cur_matrix_element_abs_int >= 0 && gfve_cur_matrix_element_abs_int <= (4294967296 - 2) );
+            write_ue_v("SEI: gfve_matrix_delta_element_int", gfve_cur_matrix_element_abs_int, bitstream);
+
+            gfve_cur_matrix_element_abs_decimal = gfve_cur_matrix_element_abs - gfve_cur_matrix_element_abs_int;
+            assert( gfve_cur_matrix_element_abs_decimal >= 0 );
+            gfve_cur_matrix_element_abs_dec_int_value = (int)(gfve_cur_matrix_element_abs_decimal * (1 << gfve_matrix_element_precision_factor) + 0.5);
+            write_u_v(gfve_matrix_element_precision_factor, "SEI: gfve_matrix_delta_element_dec", gfve_cur_matrix_element_abs_dec_int_value, bitstream);
+
+            gfve_signflag_matrix_element = ((sei->gfve_matrix_element[matrixId][j][k] - (sei->gfve_gfv_cnt == 0 ? base_gfve_matrix_rec[matrixId][j][k] : prev_gfve_matrix_rec[matrixId][j][k])) < 0) ? TRUE : FALSE;
+            if (gfve_cur_matrix_element_abs_int || gfve_cur_matrix_element_abs_dec_int_value)
+            {
+              write_u_1("SEI: gfve_matrix_delta_element_sign_flag", gfve_signflag_matrix_element, bitstream);
+            }
+
+            gfve_matrix_element_abs_rec = (double)(gfve_cur_matrix_element_abs_int + (((double)gfve_cur_matrix_element_abs_dec_int_value) / (1 << gfve_matrix_element_precision_factor)));
+            gfve_matrix_element_rec[matrixId][j][k] = ((gfve_signflag_matrix_element ? -gfve_matrix_element_abs_rec : gfve_matrix_element_abs_rec) + (sei->gfve_gfv_cnt == 0 ? base_gfve_matrix_rec[matrixId][j][k] : prev_gfve_matrix_rec[matrixId][j][k]));
+          }
+#ifdef PRINT_GFVE_INFO
+          printf("%d (%d) ", gfve_cur_matrix_element_abs_int, gfve_cur_matrix_element_abs_dec_int_value);
+#endif
+        }
+      }
+    }
+#ifdef PRINT_GFV_INFO
+    printf("\n");
+#endif
+
+    if (do_update_gfve_matrix)
+    {
+      for (matrixId = 0; matrixId < gfve_num_matrices; matrixId++) 
+      {
+        for (j = 0; j < gfve_matrix_height_vec[matrixId]; j++) 
+        {
+          for (k = 0; k < gfve_matrix_width_vec[matrixId]; k++) 
+          {
+            prev_gfve_matrix_rec[matrixId][j][k] = gfve_matrix_element_rec[matrixId][j][k];
+            if (gfve_basePicFlag) 
+            {
+              base_gfve_matrix_rec[matrixId][j][k] = gfve_matrix_element_rec[matrixId][j][k];
+            }
+          }
+        }
+      }
+      if (gfve_basePicFlag)
+      {
+        for (matrixId = 0; matrixId < gfve_num_matrices; matrixId++) {
+          base_gfve_matrix_height_vec[matrixId] = gfve_matrix_height_vec[matrixId];
+          base_gfve_matrix_width_vec[matrixId] = gfve_matrix_width_vec[matrixId];
+        }
+      }
+      do_update_gfve_matrix = FALSE;
+    }
+    else
+    {
+      do_update_gfve_matrix = TRUE;
+    }
+  }
+
+  // Pupils in GFVE
+
+  // "The possible values of gfve_pupil_coordinate_present_idx are 0, 1, 2, and 3"
+  assert( sei->gfve_pupil_present_idx >= 0 && sei->gfve_pupil_present_idx <= 3);
+  write_u_v(2, "SEI: gfve_pupil_coordinate_present_idx", sei->gfve_pupil_present_idx, bitstream);
+#ifdef PRINT_GFVE_INFO
+  printf("gfve_pupil_coordinate_present_idx = %u\n", sei->gfve_pupil_present_idx);
+#endif
+
+  if ( sei->gfve_pupil_present_idx != 0 )
+  {
+    if ( gfve_basePicFlag )
+    {
+      check_base_pic_pupil_present_idx = TRUE;
+
+      gfve_pupil_coordinate_precision_factor_minus1 = sei->gfve_pupil_coordinate_precision_factor - 1;
+      // CHECK: The value of gfve_pupil_coordinate_precision_factor_minus1 shall be in the range of 0 to 31, inclusive
+      assert( gfve_pupil_coordinate_precision_factor_minus1 >= 0 && gfve_pupil_coordinate_precision_factor_minus1 <= 31 );
+      write_ue_v("SEI: gfve_pupil_coordinate_precision_factor_minus1", gfve_pupil_coordinate_precision_factor_minus1, bitstream);
+#ifdef PRINT_GFVE_INFO
+      printf("gfve_pupil_coordinate_precision_factor_minus1 = %u\n", gfve_pupil_coordinate_precision_factor_minus1);
+#endif
+    }
+
+    // CHECK: The gfve_pupil_coordinate_present _idx for the first frame shall not be 0
+    assert( check_base_pic_pupil_present_idx );
+  }
+
+  if ( check_base_pic_pupil_present_idx )
+  {
+    // set the reference coordinate for this frame
+    if ( sei->gfve_gfv_cnt == 0 )
+    {
+      if ( !gfve_basePicFlag )
+      {
+        gfve_left_pupil_coordinate_x_ref = base_gfve_left_pupil_coordinate_x;
+        gfve_left_pupil_coordinate_y_ref = base_gfve_left_pupil_coordinate_y;
+        gfve_right_pupil_coordinate_x_ref = base_gfve_right_pupil_coordinate_x;
+        gfve_right_pupil_coordinate_y_ref = base_gfve_right_pupil_coordinate_y;
+      }
+    }
+    else
+    {
+      gfve_left_pupil_coordinate_x_ref = prev_gfve_left_pupil_coordinate_x;
+      gfve_left_pupil_coordinate_y_ref = prev_gfve_left_pupil_coordinate_y;
+      gfve_right_pupil_coordinate_x_ref = prev_gfve_right_pupil_coordinate_x;
+      gfve_right_pupil_coordinate_y_ref = prev_gfve_right_pupil_coordinate_y;
+    }
+
+    // Left Pupil: for idx 1 and 3
+    if ( sei->gfve_pupil_present_idx == 1 || sei->gfve_pupil_present_idx == 3 )
+    {
+      gfve_left_pupil_coordinate_x_rec = WriteGFVEPupilCoordinate(p_SEI, gfve_idx, sei->gfve_pupil_left_eye_coordinate_x, gfve_left_pupil_coordinate_x_ref, sei->gfve_pupil_coordinate_precision_factor, "left", "x");
+      gfve_left_pupil_coordinate_y_rec = WriteGFVEPupilCoordinate(p_SEI, gfve_idx, sei->gfve_pupil_left_eye_coordinate_y, gfve_left_pupil_coordinate_y_ref, sei->gfve_pupil_coordinate_precision_factor, "left", "y");
+    }
+    else
+    {
+      gfve_left_pupil_coordinate_x_rec = gfve_left_pupil_coordinate_x_ref;
+      gfve_left_pupil_coordinate_y_rec = gfve_left_pupil_coordinate_y_ref;
+    }
+
+    // right pupil reference from left pupil in base pic
+    if ( gfve_basePicFlag )
+    {
+      gfve_right_pupil_coordinate_x_ref = gfve_left_pupil_coordinate_x_rec;
+      gfve_right_pupil_coordinate_y_ref = gfve_left_pupil_coordinate_y_rec;
+    }
+    
+    // RIght Pupil: for idx 2 and 3
+    if ( sei->gfve_pupil_present_idx == 2 || sei->gfve_pupil_present_idx == 3 )
+    {
+      gfve_right_pupil_coordinate_x_rec = WriteGFVEPupilCoordinate(p_SEI, gfve_idx, sei->gfve_pupil_right_eye_coordinate_x, gfve_right_pupil_coordinate_x_ref, sei->gfve_pupil_coordinate_precision_factor, "right", "x");
+      gfve_right_pupil_coordinate_y_rec = WriteGFVEPupilCoordinate(p_SEI, gfve_idx, sei->gfve_pupil_right_eye_coordinate_y, gfve_right_pupil_coordinate_y_ref, sei->gfve_pupil_coordinate_precision_factor, "right", "y");
+    }
+    else
+    {
+      gfve_right_pupil_coordinate_x_rec = gfve_right_pupil_coordinate_x_ref;
+      gfve_right_pupil_coordinate_y_rec = gfve_right_pupil_coordinate_y_ref;
+    }
+
+#ifdef PRINT_GFVE_INFO
+    printf("Pupils: Left -- [%lf , %lf], ", gfve_left_pupil_coordinate_x_rec, gfve_left_pupil_coordinate_y_rec);
+    printf("Right -- [%lf , %lf]\n", gfve_right_pupil_coordinate_x_rec, gfve_right_pupil_coordinate_y_rec);
+#endif
+
+    if (do_update_gfve_pupil_coordinate)
+    {
+      if (gfve_basePicFlag)
+      {
+        base_gfve_left_pupil_coordinate_x = gfve_left_pupil_coordinate_x_rec;
+        base_gfve_left_pupil_coordinate_y = gfve_left_pupil_coordinate_y_rec;
+        base_gfve_right_pupil_coordinate_x = gfve_right_pupil_coordinate_x_rec;
+        base_gfve_right_pupil_coordinate_y = gfve_right_pupil_coordinate_y_rec;
+      }
+
+      prev_gfve_left_pupil_coordinate_x = gfve_left_pupil_coordinate_x_rec;
+      prev_gfve_left_pupil_coordinate_y = gfve_left_pupil_coordinate_y_rec;
+      prev_gfve_right_pupil_coordinate_x = gfve_right_pupil_coordinate_x_rec;
+      prev_gfve_right_pupil_coordinate_y = gfve_right_pupil_coordinate_y_rec;
+
+      do_update_gfve_pupil_coordinate = FALSE;
+    }
+    else 
+    {
+      do_update_gfve_pupil_coordinate = TRUE;
+    }
+  }
+  
+  if (sei->gfve_nn_present_flag)
+  {
+    if (sei->gfve_nn_mode_idc == 0)
+    {
+      // Byte alignment
+      while (!(bitstream->bits_to_go==8))
+      {
+        write_u_1("SEI: gfve_nn_alignment_zero_bit_b", 0, bitstream);
+      }
+      for (long p = 0; p < sei->gfve_payload_length; p++)
+      {
+        write_u_v(8, "SEI: gfve_nn_payload_byte[i]", sei->gfve_payload_byte[p], bitstream);
+      }
+    }
+  }
+
+  // make sure the payload is byte aligned, stuff bits are 10..0
+  if ( bitstream->bits_to_go != 8 )
+  {
+    (bitstream->byte_buf) <<= 1;
+    bitstream->byte_buf |= 1;
+    bitstream->bits_to_go--;
+    if ( bitstream->bits_to_go != 0 ) 
+      (bitstream->byte_buf) <<= (bitstream->bits_to_go);
+    bitstream->bits_to_go = 8;
+    bitstream->streamBuffer[bitstream->byte_pos++]=bitstream->byte_buf;
+    bitstream->byte_buf = 0;
+  }
+  sei->payloadSize = bitstream->byte_pos;
+
+
+  // Free allocated memory
+  if (gfve_matrix_element_rec) 
+  {
+    for (matrixId = 0; matrixId < gfve_num_matrices; matrixId++)
+    {
+      if (gfve_matrix_element_rec[matrixId])
+      {
+        for (j = 0; j < gfve_matrix_height_vec[matrixId]; j++)
+        {
+          if (gfve_matrix_element_rec[matrixId][j]) 
+          {
+            free(gfve_matrix_element_rec[matrixId][j]);
+          }
+        }
+        free(gfve_matrix_element_rec[matrixId]);
+      }
+    }
+    free(gfve_matrix_element_rec);
+  }
+  
+  if (gfve_matrix_width_vec) free(gfve_matrix_width_vec);
+  if (gfve_matrix_height_vec) free(gfve_matrix_height_vec);
+
+#ifdef PRINT_GFVE_INFO
+  printf("FinalizeGFVE, finish idx %u\n", gfve_idx);
+#endif
+}
+
+double WriteGFVEPupilCoordinate(SEIParameters *p_SEI, unsigned int gfve_idx, double coordinate, double ref_coordinate, int precision_factor, const char* eye, const char* axis)
+{
+  generative_face_video_enhancement_struct *sei = &p_SEI->seiGFVE[gfve_idx];
+  Bitstream *bitstream = sei->data;  
+
+  double gfve_pupil_delta_abs, gfve_pupil_delta_abs_rec;
+  int gfve_pupil_abs_int_value;
+  char gfve_pupil_check_message[256];
+  char gfve_pupil_abs_symbol_name[256];
+  char gfve_pupil_sign_symbol_name[256];
+  Boolean gfve_pupil_signflag;
+
+  gfve_pupil_delta_abs = fabs(coordinate - ref_coordinate);
+  gfve_pupil_abs_int_value = (int)(gfve_pupil_delta_abs * (1 << precision_factor) + 0.5);
+
+  // CHECK: Invalid value for 'eye'. Allowed values are 'left' or 'right'.
+  assert( strcmp(eye, "left") == 0 || strcmp(eye, "right") == 0 );
+  // CHECK: Invalid value for 'axis'. Allowed values are 'x' or 'y'.
+  assert( strcmp(axis, "x") == 0 || strcmp(axis, "y") == 0 );
+
+  snprintf(gfve_pupil_check_message, sizeof(gfve_pupil_check_message), "The value of gfve_pupil_%s_eye_d%s_coordinate_abs shall be in the range of 0 to 1 << (gfve_pupil_coordinate_precision_factor_minus1 + 2), inclusive", eye, axis);
+  if (gfve_pupil_abs_int_value < 0 || gfve_pupil_abs_int_value > (1 << (precision_factor + 1))) {
+    error(gfve_pupil_check_message, 500);
+  }
+
+  snprintf(gfve_pupil_abs_symbol_name, sizeof(gfve_pupil_abs_symbol_name), "SEI: gfve_pupil_%s_eye_d%s_coordinate_abs", eye, axis);
+  write_ue_v(gfve_pupil_abs_symbol_name, gfve_pupil_abs_int_value, bitstream);
+
+#ifdef PRINT_GFVE_INFO
+  printf("%s (%d)\n", gfve_pupil_abs_symbol_name, gfve_pupil_abs_int_value);
+#endif
+
+  gfve_pupil_signflag = ((coordinate - ref_coordinate) < 0) ? TRUE : FALSE;
+  if ( gfve_pupil_abs_int_value )
+  {
+    snprintf(gfve_pupil_sign_symbol_name, sizeof(gfve_pupil_sign_symbol_name), "SEI: gfve_pupil_%s_eye_d%s_coordinate_sign_flag", eye, axis);
+    write_u_1(gfve_pupil_sign_symbol_name, gfve_pupil_signflag, bitstream);
+  }
+
+  gfve_pupil_delta_abs_rec = (((double)gfve_pupil_abs_int_value) / (1 << precision_factor));
+  return (gfve_pupil_signflag ? -gfve_pupil_delta_abs_rec : gfve_pupil_delta_abs_rec) + ref_coordinate;
+}
+
+void UpdateGFVE(SEIParameters *p_SEI, InputParameters *p_Inp) 
+{
+#ifdef PRINT_GFVE_INFO
+  printf("UpdateGFVE, start\n");
+#endif
+
+  // uncomment to update SEI to another configuration
+  // sprintf(p_Inp->GFVFile, "cfg/generative_face_video_enhancement3.cfg");
+
+  // read GFVE config from file
+  ParseGFVEConfigFile(p_SEI, p_Inp, p_SEI->seiGFVE);
+  
+  // all initialized, set GFVE presence to true
+  p_SEI->seiHasGFVE_info = TRUE;
+
+#ifdef PRINT_GFVE_INFO
+    printf("UpdateGFVE, finish\n");
+#endif
+}
+#endif
+#endif

@@ -78,6 +78,8 @@
 #define LD_REF_SETTING          1     ///!< used for low delay setting, 1+X referencing structure, as proposed in JCTVC-F701
 
 
+#define GFV_ENABLE              1     //!< JVET-AJ0207 GFV and JVET-AK0239 GFVE SEI message
+
 //AVC Profile IDC definitions
 typedef enum {
   NO_PROFILE     =  0,       //!< disable profile checking for experimental coding (enables FRExt, but disables MV)

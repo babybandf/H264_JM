@@ -57,6 +57,67 @@
 // #define PRINT_FRAME_PACKING_ARRANGEMENT_INFO       // uncomment to print frame packing arrangement SEI info
 // #define PRINT_GREEN_METADATA_INFO      // uncomment to print Green Metadata SEI info
 // #define PRINT_MODALITY_INFO                        // uncomment to print modality SEI info
+// #define PRINT_GFV_INFO                             // uncomment to print GFV SEI info
+// #define PRINT_GFVE_INFO                            // uncomment to print GFVE SEI info
+
+#if GFV_ENABLE
+#if JVET_AJ0207_GFV_SEI
+// Additional coordinate arrays from header file
+double* base_coordinate_x = NULL;
+double* base_coordinate_y = NULL;
+double* base_coordinate_z = NULL;
+double* prev_coordinate_x = NULL;
+double* prev_coordinate_y = NULL;
+double* prev_coordinate_z = NULL;
+
+// Additional matrix arrays from header file
+unsigned int* base_matrix_width_vec = NULL;
+unsigned int* base_matrix_height_vec = NULL;
+unsigned int* base_num_matrices_vec = NULL;
+
+// For matrix element
+double**** base_matrix = NULL;
+double**** prev_matrix = NULL;
+
+// For pred coding
+unsigned int base_coordinate_quantization_factor = 0;
+unsigned int base_coordinate_point_num = 0;
+Boolean base_3d_coordinate_flag = FALSE;
+unsigned int base_coordinate_z_max_value = 0;
+unsigned int base_matrix_element_precision_factor = 0;
+unsigned int base_num_matrix_type = 0;
+
+#endif
+
+#if JVET_AK0239_GFVE_SEI
+// Additional matrix arrays from header file
+unsigned int* base_gfve_matrix_width_vec = NULL;
+unsigned int* base_gfve_matrix_height_vec = NULL;
+
+// For matrix element
+double*** base_gfve_matrix = NULL;
+double*** prev_gfve_matrix = NULL;
+
+// For pred coding
+unsigned int base_gfve_num_matrices = 0;
+unsigned int base_gfve_matrix_element_precision_factor = 0;
+
+// For pupil prediction
+double base_gfve_left_pupil_coordinate_x = 0;
+double base_gfve_left_pupil_coordinate_y = 0;
+double base_gfve_right_pupil_coordinate_x = 0;
+double base_gfve_right_pupil_coordinate_y = 0;
+double prev_gfve_left_pupil_coordinate_x = 0;
+double prev_gfve_left_pupil_coordinate_y = 0;
+double prev_gfve_right_pupil_coordinate_x = 0;
+double prev_gfve_right_pupil_coordinate_y = 0;
+
+// For pupil pred coding
+Boolean check_base_pic_pupil_present_idx = FALSE;
+unsigned int base_gfve_pupil_coordinate_precision_factor = 0;
+
+#endif
+#endif
 
 /*!
  ************************************************************************
@@ -182,6 +243,18 @@ void InterpretSEIMessage(byte* msg, int size, VideoParameters *p_Vid, Slice *pSl
     case  SEI_MODALITY_INFO:
       interpret_modality_info( msg+offset, payload_size, p_Vid );
       break;
+#endif
+#if GFV_ENABLE
+#if JVET_AJ0207_GFV_SEI
+    case  SEI_GENERATIVE_FACE_VIDEO:
+      interpret_gfv_info( msg+offset, payload_size, p_Vid );
+      break;
+#endif
+#if JVET_AK0239_GFVE_SEI
+    case  SEI_GENERATIVE_FACE_VIDEO_ENHANCEMENT:
+      interpret_gfve_info( msg+offset, payload_size, p_Vid );
+      break;
+#endif
 #endif
     default:
       interpret_reserved_info( msg+offset, payload_size, p_Vid );
@@ -2385,4 +2458,1574 @@ void interpret_green_metadata_info(byte* payload, int size, VideoParameters *p_V
  }
    free( buf );
  }
+#endif
+#if GFV_ENABLE
+#if JVET_AJ0207_GFV_SEI
+/*!
+ ************************************************************************
+ *  \brief
+ *     Interpret the Generative Face Video (GFV) SEI message
+ *  \param payload
+ *     a pointer that point to the sei payload
+ *  \param size
+ *     the size of the sei message
+ *  \param p_Vid
+ *     the image pointer
+ *
+ ************************************************************************
+ */
+void interpret_gfv_info( byte* payload, int size, VideoParameters *p_Vid )
+{
+  Bitstream *buf;
+
+  generative_face_video_struct seiGFV;
+  memset(&seiGFV, 0, sizeof(generative_face_video_struct));
+
+  unsigned int val, i, chromac, chromai;
+  unsigned int id;
+  unsigned char temp_char;
+  Boolean gfv_value_sign_flag;
+  unsigned int matrixId, j, k, l;
+
+  int cur_coordinate_x_int, cur_coordinate_y_int, cur_coordinate_z_int;
+  int cur_matrix_element_abs_int, cur_matrix_element_abs_dec_int_value;
+
+  buf = malloc(sizeof(Bitstream));
+  if (!buf) no_mem_exit("interpret_gfv_info: Cannot allocate bitstream");
+  buf->bitstream_length = size;
+  buf->streamBuffer = payload;
+  buf->frame_bitoffset = 0;
+
+  p_Dec->UsedBits = 0;
+
+#ifdef PRINT_GFV_INFO
+  printf("GFV SEI message\n");
+#endif
+
+  seiGFV.gfv_id = read_ue_v("SEI: gfv_id", buf, &p_Dec->UsedBits);
+  id = seiGFV.gfv_id;
+
+  seiGFV.gfv_cnt = read_ue_v("SEI: gfv_cnt", buf, &p_Dec->UsedBits);
+
+  if (seiGFV.gfv_cnt == 0) {
+    seiGFV.gfv_base_pic_flag = read_u_1("SEI: gfv_base_picture_flag", buf, &p_Dec->UsedBits);
+  }
+  else {
+    seiGFV.gfv_base_pic_flag = FALSE;
+  }
+
+#ifdef PRINT_GFV_INFO
+  printf("gfv_id = %u\n", seiGFV.gfv_id);
+  printf("gfv_cnt = %u\n", seiGFV.gfv_cnt);
+  printf("gfv_base_pic_flag = %u\n", seiGFV.gfv_base_pic_flag);
+#endif
+
+  if (seiGFV.gfv_base_pic_flag) 
+  {
+    seiGFV.gfv_nn_present_flag = read_u_1("SEI: gfv_nn_present_flag", buf, &p_Dec->UsedBits);
+
+    if (seiGFV.gfv_nn_present_flag) 
+    {
+      seiGFV.gfv_nn_mode_idc = read_ue_v("SEI: gfv_mode_idc", buf, &p_Dec->UsedBits);
+
+#ifdef PRINT_GFV_INFO
+      printf("gfv_nn_mode_idc = %u\n", seiGFV.gfv_nn_mode_idc);
+#endif
+
+      // Mode IDC 1 processing, to signal NN
+      if (seiGFV.gfv_nn_mode_idc == 1) 
+      {
+        // Byte alignment
+        while (p_Dec->UsedBits % 8 != 0)
+        {
+          val = read_u_1("SEI: gfv_nn_alignment_zero_bit_a", buf, &p_Dec->UsedBits);
+          // CHECK: gfv_nn_alignment_zero_bit_a shall be equal to zero
+          assert( val == 0 );
+        }
+
+        i = 0;
+        do 
+        {
+          temp_char = read_u_v(8, "SEI: gfv_nn_tag_uri", buf, &p_Dec->UsedBits);
+          seiGFV.gfv_nn_tag_uri[i++] = temp_char;
+        } while (temp_char != '\0' && i < 4095);
+        seiGFV.gfv_nn_tag_uri[4095] = '\0';
+
+        i = 0;
+        do 
+        {
+          temp_char = read_u_v(8, "SEI: gfv_nn_uri", buf, &p_Dec->UsedBits);
+          seiGFV.gfv_nn_uri[i++] = temp_char;
+        } while (temp_char != '\0' && i < 4095);
+        seiGFV.gfv_nn_uri[4095] = '\0';
+        
+#ifdef PRINT_GFV_INFO
+        printf("gfv_nn_tag_uri = %s\n", seiGFV.gfv_nn_tag_uri);
+        printf("gfv_nn_uri = %s\n", seiGFV.gfv_nn_uri);
+#endif
+      }
+    }
+
+    seiGFV.gfv_chroma_key_info_present_flag = read_u_1("SEI: gfv_chroma_key_info_present_flag", buf, &p_Dec->UsedBits);
+
+#ifdef PRINT_GFV_INFO
+    printf("gfv_chroma_key_info_present_flag = %u\n", seiGFV.gfv_chroma_key_info_present_flag);
+#endif
+
+    if (seiGFV.gfv_chroma_key_info_present_flag)
+    {
+      for (chromac = 0; chromac < 3; chromac++)
+      {
+        seiGFV.gfv_chroma_key_value_present_flag[chromac] = read_u_1("SEI: gfv_chroma_key_value_present_flag[c]", buf, &p_Dec->UsedBits);
+#ifdef PRINT_GFV_INFO
+        printf("gfv_chroma_key_value_present_flag[c] = %u\n", seiGFV.gfv_chroma_key_value_present_flag[chromac]);
+#endif
+        if (seiGFV.gfv_chroma_key_value_present_flag[chromac])
+        {
+          seiGFV.gfv_chroma_key_value[chromac] = read_u_v(8, "SEI: gfv_chroma_key_value[chromac]", buf, &p_Dec->UsedBits);
+#ifdef PRINT_GFV_INFO
+          printf("gfv_chroma_key_value[c] = %u\n", seiGFV.gfv_chroma_key_value[chromac]);
+#endif
+        }
+      }
+
+      Boolean gfv_chroma_key_default_value_flag = (!(seiGFV.gfv_chroma_key_value_present_flag[0] || seiGFV.gfv_chroma_key_value_present_flag[1] || seiGFV.gfv_chroma_key_value_present_flag[2]));
+      unsigned int gfv_chroma_key_value[3] = {0};
+      unsigned int gfv_chroma_key_value_size = 0;
+
+      if (gfv_chroma_key_default_value_flag) 
+      {
+        gfv_chroma_key_value[0] = 50;
+        gfv_chroma_key_value[1] = 220;
+        gfv_chroma_key_value[2] = 100;
+        gfv_chroma_key_value_size = 3;
+      }
+      else 
+      {
+        for (chromac = 0; chromac < 3; chromac++)
+        {
+          if (seiGFV.gfv_chroma_key_value_present_flag[chromac])
+          {
+            gfv_chroma_key_value[chromac] = seiGFV.gfv_chroma_key_value[chromac];
+            gfv_chroma_key_value_size++;
+          }
+        }
+      }
+
+#ifdef PRINT_GFV_INFO
+      printf("gfv_chroma_key_value_size = %u\n", gfv_chroma_key_value_size);
+      printf("gfv_chroma_key_value = ");
+      for (chromac = 0; chromac < 3; chromac++)
+      {
+        printf("%u ", gfv_chroma_key_value[chromac]);
+      }
+      printf("\n");
+#endif
+
+      for (chromai = 0; chromai < 2; chromai++)
+      {
+        seiGFV.gfv_chroma_key_thr_present_flag[chromai] = read_u_1("SEI: gfv_chroma_key_thr_present_flag[i]", buf, &p_Dec->UsedBits);
+        if (seiGFV.gfv_chroma_key_thr_present_flag[chromai])
+        {
+          seiGFV.gfv_chroma_key_thr_value[chromai] = read_ue_v("SEI: gfv_chroma_key_thr_value[i]", buf, &p_Dec->UsedBits);
+        }
+        else
+        {
+          seiGFV.gfv_chroma_key_thr_value[chromai] = (chromai == 0) ? 48 : 75;
+        }
+#ifdef PRINT_GFV_INFO
+        printf("gfv_chroma_key_thr_present_flag[i] = %u\n", seiGFV.gfv_chroma_key_thr_present_flag[chromai]);
+        printf("gfv_chroma_key_thr_value[i] = %u\n", seiGFV.gfv_chroma_key_thr_value[chromai]);
+#endif
+      }
+    }
+  }
+  else
+  {
+    // Not base picture, check for drive pic fusion
+    seiGFV.gfv_drive_pic_fusion_flag = read_u_1("SEI: gfv_drive_picture_fusion_flag", buf, &p_Dec->UsedBits);
+#ifdef PRINT_GFV_INFO
+    printf("gfv_drive_picture_fusion_flag = %u\n", seiGFV.gfv_drive_pic_fusion_flag);
+#endif
+  }
+
+  // low confidence face
+  seiGFV.gfv_low_confidence_face_parameter_flag = read_u_1("SEI: gfv_low_confidence_face_parameter_flag", buf, &p_Dec->UsedBits);
+#ifdef PRINT_GFV_INFO
+  printf("gfv_low_confidence_face_parameter_flag = %u\n", seiGFV.gfv_low_confidence_face_parameter_flag);
+#endif
+
+  // face keypoint coordinates
+  seiGFV.gfv_coordinate_present_flag = read_u_1("SEI: gfv_coordinate_present_flag", buf, &p_Dec->UsedBits);
+#ifdef PRINT_GFV_INFO
+  printf("gfv_coordinate_present_flag = %u\n", seiGFV.gfv_coordinate_present_flag);
+#endif
+  if (seiGFV.gfv_coordinate_present_flag)
+  {
+    seiGFV.gfv_coordinate_pred_flag = read_u_1("SEI: gfv_kps_pred_flag", buf, &p_Dec->UsedBits);
+#ifdef PRINT_GFV_INFO
+    printf("gfv_kps_pred_flag = %u\n", seiGFV.gfv_coordinate_pred_flag);
+#endif
+    if ( seiGFV.gfv_base_pic_flag || !seiGFV.gfv_coordinate_pred_flag )
+    {
+      val = read_ue_v("SEI: gfv_coordinate_precision_factor_minus1", buf, &p_Dec->UsedBits);
+      // CHECK: The value of gfv_coordinate_precision_factor_minus1 shall be in the range of 0 to 31, inclusive
+      assert( val >= 0 && val <= 31 );
+      seiGFV.gfv_coordinate_quantization_factor = val + 1;
+
+      val = read_ue_v("SEI: gfv_num_kps_minus1", buf, &p_Dec->UsedBits);
+      seiGFV.gfv_coordinate_point_num = val + 1;
+
+      seiGFV.gfv_3d_coordinate_flag = read_u_1("SEI: gfv_coordinate_z_present_flag", buf, &p_Dec->UsedBits);
+
+#ifdef PRINT_GFV_INFO
+      printf("gfv_coordinate_precision_factor = %u\n", seiGFV.gfv_coordinate_quantization_factor);
+      printf("gfv_num_kps = %u\n", seiGFV.gfv_coordinate_point_num);
+      printf("gfv_coordinate_z_present_flag = %u\n", seiGFV.gfv_3d_coordinate_flag);
+#endif
+
+      if ( seiGFV.gfv_base_pic_flag )
+      {
+        base_coordinate_quantization_factor = seiGFV.gfv_coordinate_quantization_factor;
+        base_coordinate_point_num = seiGFV.gfv_coordinate_point_num;
+        base_3d_coordinate_flag = seiGFV.gfv_3d_coordinate_flag;
+      }
+      if ( seiGFV.gfv_3d_coordinate_flag ) 
+      {
+        val = read_ue_v("SEI: gfv_coordinate_z_max_value_minus1", buf, &p_Dec->UsedBits);
+        seiGFV.gfv_coordinate_z_max_value = val + 1;
+#ifdef PRINT_GFV_INFO
+        printf("gfv_coordinate_z_max_value = %u\n", seiGFV.gfv_coordinate_z_max_value);
+#endif
+        if ( seiGFV.gfv_base_pic_flag ) 
+        {
+          base_coordinate_z_max_value = seiGFV.gfv_coordinate_z_max_value;
+        }
+      }
+    }
+    else
+    {
+      seiGFV.gfv_coordinate_quantization_factor = base_coordinate_quantization_factor;
+      seiGFV.gfv_coordinate_point_num = base_coordinate_point_num;
+      seiGFV.gfv_3d_coordinate_flag = base_3d_coordinate_flag;
+      if ( seiGFV.gfv_3d_coordinate_flag ) 
+      {
+        seiGFV.gfv_coordinate_z_max_value = base_coordinate_z_max_value;
+      }
+    }
+
+    // Allocate memory for coordinate arrays
+    seiGFV.gfv_coordinate_x = (double*)malloc(seiGFV.gfv_coordinate_point_num * sizeof(double));
+    if (!seiGFV.gfv_coordinate_x) no_mem_exit("interpret_gfv_info: gfv_coordinate_x");
+    seiGFV.gfv_coordinate_y = (double*)malloc(seiGFV.gfv_coordinate_point_num * sizeof(double));
+    if (!seiGFV.gfv_coordinate_y) no_mem_exit("interpret_gfv_info: gfv_coordinate_y");
+    seiGFV.gfv_coordinate_z = (double*)malloc(seiGFV.gfv_coordinate_point_num * sizeof(double));
+    if (!seiGFV.gfv_coordinate_z) no_mem_exit("interpret_gfv_info: gfv_coordinate_z");
+
+    // For base pic, free and reallocate base coordinates
+    if ( seiGFV.gfv_base_pic_flag ) 
+    {
+      if (base_coordinate_x) free(base_coordinate_x);
+      base_coordinate_x = (double*)malloc(seiGFV.gfv_coordinate_point_num * sizeof(double));
+      if (!base_coordinate_x) no_mem_exit("interpret_gfv_info: base_coordinate_x");
+      
+      if (prev_coordinate_x) free(prev_coordinate_x);
+      prev_coordinate_x = (double*)malloc(seiGFV.gfv_coordinate_point_num * sizeof(double));
+      if (!prev_coordinate_x) no_mem_exit("interpret_gfv_info: prev_coordinate_x");
+      
+      if (base_coordinate_y) free(base_coordinate_y);
+      base_coordinate_y = (double*)malloc(seiGFV.gfv_coordinate_point_num * sizeof(double));
+      if (!base_coordinate_y) no_mem_exit("interpret_gfv_info: base_coordinate_y");
+      
+      if (prev_coordinate_y) free(prev_coordinate_y);
+      prev_coordinate_y = (double*)malloc(seiGFV.gfv_coordinate_point_num * sizeof(double));
+      if (!prev_coordinate_y) no_mem_exit("interpret_gfv_info: prev_coordinate_y");
+
+      if (base_coordinate_z) free(base_coordinate_z);
+      base_coordinate_z = (double*)malloc(seiGFV.gfv_coordinate_point_num * sizeof(double));
+      if (!base_coordinate_z) no_mem_exit("interpret_gfv_info: base_coordinate_z");
+      
+      if (prev_coordinate_z) free(prev_coordinate_z);
+      prev_coordinate_z = (double*)malloc(seiGFV.gfv_coordinate_point_num * sizeof(double));
+      if (!prev_coordinate_z) no_mem_exit("interpret_gfv_info: prev_coordinate_z");
+    }
+
+#ifdef PRINT_GFV_INFO
+    printf("gfv_coordinate_xyz = ");
+#endif
+    // X_coordinate_tensor && Y_coordinate_tensor  && Z_coordinate_tensor
+    for (i = 0; i < seiGFV.gfv_coordinate_point_num; i++)
+    {
+      // absolute coords
+      if (!seiGFV.gfv_coordinate_pred_flag)
+      {
+        // X_coordinate_tensor
+        cur_coordinate_x_int = read_ue_v("SEI: gfv_coordinate_x_abs[ i ]", buf, &p_Dec->UsedBits);
+        double cur_coordinate_x_abs = ((double)cur_coordinate_x_int) / (1 << seiGFV.gfv_coordinate_quantization_factor);
+        gfv_value_sign_flag = FALSE;
+        if (cur_coordinate_x_int)
+        {
+          gfv_value_sign_flag = read_u_1("SEI: gfv_coordinate_x_sign_flag[ i ]", buf, &p_Dec->UsedBits);
+        }
+        double cur_coordinate_x = gfv_value_sign_flag ? -cur_coordinate_x_abs : cur_coordinate_x_abs;
+        seiGFV.gfv_coordinate_x[i] = cur_coordinate_x;
+        if ( seiGFV.gfv_base_pic_flag )
+        {
+          base_coordinate_x[i] = cur_coordinate_x;
+          prev_coordinate_x[i] = cur_coordinate_x;
+        }
+        else
+        {
+          prev_coordinate_x[i] = cur_coordinate_x;
+        }
+
+        // Y_coordinate_tensor
+        cur_coordinate_y_int = read_ue_v("SEI: gfv_coordinate_y_abs[ i ]", buf, &p_Dec->UsedBits);
+        double cur_coordinate_y_abs = ((double)cur_coordinate_y_int) / (1 << seiGFV.gfv_coordinate_quantization_factor);
+        gfv_value_sign_flag = FALSE;
+        if (cur_coordinate_y_int)
+        {
+          gfv_value_sign_flag = read_u_1("SEI: gfv_coordinate_y_sign_flag[ i ]", buf, &p_Dec->UsedBits);
+        }
+        double cur_coordinate_y = gfv_value_sign_flag ? -cur_coordinate_y_abs : cur_coordinate_y_abs;
+        seiGFV.gfv_coordinate_y[i] = cur_coordinate_y;
+        if ( seiGFV.gfv_base_pic_flag )
+        {
+          base_coordinate_y[i] = cur_coordinate_y;
+          prev_coordinate_y[i] = cur_coordinate_y;
+        }
+        else
+        {
+          prev_coordinate_y[i] = cur_coordinate_y;
+        }
+
+        // Z_coordinate_tensor
+        if (seiGFV.gfv_3d_coordinate_flag) 
+        {
+          cur_coordinate_z_int = read_ue_v("SEI: gfv_coordinate_z_abs[ i ]", buf, &p_Dec->UsedBits);
+          double cur_coordinate_z_abs = ((double)cur_coordinate_z_int) / (1 << seiGFV.gfv_coordinate_quantization_factor);
+          gfv_value_sign_flag = FALSE;
+          if (cur_coordinate_z_int)
+          {
+            gfv_value_sign_flag = read_u_1("SEI: gfv_coordinate_z_sign_flag[ i ]", buf, &p_Dec->UsedBits);
+          }
+          double cur_coordinate_z = gfv_value_sign_flag ? -cur_coordinate_z_abs : cur_coordinate_z_abs;
+          seiGFV.gfv_coordinate_z[i] = cur_coordinate_z;
+          if ( seiGFV.gfv_base_pic_flag )
+          {
+            base_coordinate_z[i] = cur_coordinate_z;
+            prev_coordinate_z[i] = cur_coordinate_z;
+          }
+          else
+          {
+            prev_coordinate_z[i] = cur_coordinate_z;
+          }
+        }
+      }
+      // inter-frame difference with dx
+      else
+      {
+        // X_coordinate_pred_tensor
+        cur_coordinate_x_int = read_ue_v("SEI: gfv_coordinate_dx_abs[ i ]", buf, &p_Dec->UsedBits);
+        double cur_coordinate_x_abs = ((double)cur_coordinate_x_int) / (1 << seiGFV.gfv_coordinate_quantization_factor);
+        gfv_value_sign_flag = FALSE;
+        if (cur_coordinate_x_int)
+        {
+          gfv_value_sign_flag = read_u_1("SEI: gfv_coordinate_dx_sign_flag[ i ]", buf, &p_Dec->UsedBits);
+        }
+        double cur_coordinate_x = (gfv_value_sign_flag ? -cur_coordinate_x_abs : cur_coordinate_x_abs) + (seiGFV.gfv_base_pic_flag ? (i == 0 ? 0 : prev_coordinate_x[i - 1]) : (seiGFV.gfv_cnt == 0 ? base_coordinate_x[i] : prev_coordinate_x[i]));
+        seiGFV.gfv_coordinate_x[i] = cur_coordinate_x;
+        if ( seiGFV.gfv_base_pic_flag )
+        {
+          base_coordinate_x[i] = cur_coordinate_x;
+          prev_coordinate_x[i] = cur_coordinate_x;
+        }
+        else
+        {
+          prev_coordinate_x[i] = cur_coordinate_x;
+        }
+
+        // Y_coordinate_pred_tensor
+        cur_coordinate_y_int = read_ue_v("SEI: gfv_coordinate_dy_abs[ i ]", buf, &p_Dec->UsedBits);
+        double cur_coordinate_y_abs = ((double)cur_coordinate_y_int) / (1 << seiGFV.gfv_coordinate_quantization_factor);
+        gfv_value_sign_flag = FALSE;
+        if (cur_coordinate_y_int)
+        {
+          gfv_value_sign_flag = read_u_1("SEI: gfv_coordinate_dy_sign_flag[ i ]", buf, &p_Dec->UsedBits);
+        }
+        double cur_coordinate_y = (gfv_value_sign_flag ? -cur_coordinate_y_abs : cur_coordinate_y_abs) + (seiGFV.gfv_base_pic_flag ? (i == 0 ? 0 : prev_coordinate_y[i - 1]) : (seiGFV.gfv_cnt == 0 ? base_coordinate_y[i] : prev_coordinate_y[i]));
+        seiGFV.gfv_coordinate_y[i] = cur_coordinate_y;
+        if ( seiGFV.gfv_base_pic_flag )
+        {
+          base_coordinate_y[i] = cur_coordinate_y;
+          prev_coordinate_y[i] = cur_coordinate_y;
+        }
+        else
+        {
+          prev_coordinate_y[i] = cur_coordinate_y;
+        }
+
+        // Z_coordinate_pred_tensor
+        if (seiGFV.gfv_3d_coordinate_flag) 
+        {
+          cur_coordinate_z_int = read_ue_v("SEI: gfv_coordinate_dz_abs[ i ]", buf, &p_Dec->UsedBits);
+          double cur_coordinate_z_abs = ((double)cur_coordinate_z_int) / (1 << seiGFV.gfv_coordinate_quantization_factor);
+          gfv_value_sign_flag = FALSE;
+          if (cur_coordinate_z_int)
+          {
+            gfv_value_sign_flag = read_u_1("SEI: gfv_coordinate_dz_sign_flag[ i ]", buf, &p_Dec->UsedBits);
+          }
+          double cur_coordinate_z = (gfv_value_sign_flag ? -cur_coordinate_z_abs : cur_coordinate_z_abs) + (seiGFV.gfv_base_pic_flag ? (i == 0 ? 0 : prev_coordinate_z[i - 1]) : (seiGFV.gfv_cnt == 0 ? base_coordinate_z[i] : prev_coordinate_z[i]));
+          seiGFV.gfv_coordinate_z[i] = cur_coordinate_z;
+          if ( seiGFV.gfv_base_pic_flag )
+          {
+            base_coordinate_z[i] = cur_coordinate_z;
+            prev_coordinate_z[i] = cur_coordinate_z;
+          }
+          else
+          {
+            prev_coordinate_z[i] = cur_coordinate_z;
+          }
+        }
+      }
+#ifdef PRINT_GFV_INFO
+      printf("%d (%d) ", cur_coordinate_x_int, cur_coordinate_y_int);
+      if (seiGFV.gfv_3d_coordinate_flag)
+      {
+        printf("[%d] ", cur_coordinate_z_int);
+      }
+#endif     
+    }
+#ifdef PRINT_GFV_INFO
+    printf("\n");
+#endif
+
+#ifdef PRINT_GFV_INFO
+    printf("gfv_coordinate_x = ");
+    for (i = 0; i < seiGFV.gfv_coordinate_point_num; i++)
+    {
+      printf("%lf ", seiGFV.gfv_coordinate_x[i]);
+    }
+    printf("\n");
+
+    printf("gfv_coordinate_y = ");
+    for (i = 0; i < seiGFV.gfv_coordinate_point_num; i++)
+    {
+      printf("%lf ", seiGFV.gfv_coordinate_y[i]);
+    }
+    printf("\n");
+
+    if (seiGFV.gfv_3d_coordinate_flag)
+    {
+      printf("gfv_coordinate_z = ");
+      for (i = 0; i < seiGFV.gfv_coordinate_point_num; i++)
+      {
+        printf("%lf ", seiGFV.gfv_coordinate_z[i]);
+      }
+      printf("\n");
+    }
+#endif
+  }
+  else
+  {
+    seiGFV.gfv_coordinate_point_num = 0;
+    seiGFV.gfv_3d_coordinate_flag = FALSE;
+  }
+  
+  // Matrix parameters
+  seiGFV.gfv_matrix_present_flag = read_u_1("SEI: gfv_matrix_present_flag", buf, &p_Dec->UsedBits);
+  // CHECK: When gfv_coordinate_present_flag is equal to 0, gfv_matrix_present_flag shall be equal to 1
+  assert( (seiGFV.gfv_coordinate_present_flag) || (seiGFV.gfv_matrix_present_flag) );
+#ifdef PRINT_GFV_INFO
+  printf("gfv_matrix_present_flag = %u\n", seiGFV.gfv_matrix_present_flag);
+#endif
+
+  if (seiGFV.gfv_matrix_present_flag)
+  {
+    if ( !seiGFV.gfv_base_pic_flag )
+    {
+      seiGFV.gfv_matrix_pred_flag = read_u_1("SEI: gfv_matrix_pred_flag", buf, &p_Dec->UsedBits);
+    }
+    else
+    {
+      seiGFV.gfv_matrix_pred_flag = FALSE;
+    }
+#ifdef PRINT_GFV_INFO
+    printf("gfv_matrix_pred_flag = %u\n", seiGFV.gfv_matrix_pred_flag);
+#endif
+
+    if ( !seiGFV.gfv_matrix_pred_flag )
+    {
+      val = read_ue_v("SEI: gfv_matrix_element_precision_factor_minus1", buf, &p_Dec->UsedBits);
+      // CHECK: The value of gfv_matrix_element_precision_factor_minus1 shall be in the range of 0 to 31, inclusive
+      assert( val >= 0 && val <= 31 );
+      seiGFV.gfv_matrix_element_precision_factor = val + 1;
+
+      val = read_ue_v("SEI: gfv_num_matrix_types_minus1", buf, &p_Dec->UsedBits);
+      seiGFV.gfv_num_matrix_type = val + 1;
+
+#ifdef PRINT_GFV_INFO
+      printf("gfv_matrix_element_precision_factor = %u\n", seiGFV.gfv_matrix_element_precision_factor);
+      printf("gfv_num_matrix_type = %u\n", seiGFV.gfv_num_matrix_type);
+#endif
+
+      if (seiGFV.gfv_base_pic_flag)
+      {
+        base_matrix_element_precision_factor = seiGFV.gfv_matrix_element_precision_factor;
+        base_num_matrix_type = seiGFV.gfv_num_matrix_type;
+
+        // For base pic, free and reallocate base matrix info
+        if (base_num_matrices_vec) free(base_num_matrices_vec);
+        base_num_matrices_vec = (unsigned int*)malloc(seiGFV.gfv_num_matrix_type * sizeof(unsigned int));
+        if (!base_num_matrices_vec) no_mem_exit("interpret_gfv_info: base_num_matrices_vec");
+
+        if (base_matrix_width_vec) free(base_matrix_width_vec);
+        base_matrix_width_vec = (unsigned int*)malloc(seiGFV.gfv_num_matrix_type * sizeof(unsigned int));
+        if (!base_matrix_width_vec) no_mem_exit("interpret_gfv_info: base_matrix_width_vec");
+        
+        if (base_matrix_height_vec) free(base_matrix_height_vec);
+        base_matrix_height_vec = (unsigned int*)malloc(seiGFV.gfv_num_matrix_type * sizeof(unsigned int));
+        if (!base_matrix_height_vec) no_mem_exit("interpret_gfv_info: base_matrix_height_vec");
+      }
+      
+      // Allocate memory for matrix info
+      seiGFV.gfv_matrix_type_idx = (unsigned int*)malloc(seiGFV.gfv_num_matrix_type * sizeof(unsigned int));
+      if (!seiGFV.gfv_matrix_type_idx) no_mem_exit("interpret_gfv_info: gfv_matrix_type_idx");
+      seiGFV.gfv_num_matrices_to_num_kps_flag = (Boolean*)malloc(seiGFV.gfv_num_matrix_type * sizeof(Boolean));
+      if (!seiGFV.gfv_num_matrices_to_num_kps_flag) no_mem_exit("interpret_gfv_info: gfv_num_matrices_to_num_kps_flag");
+      seiGFV.gfv_num_matrices_info = (unsigned int*)malloc(seiGFV.gfv_num_matrix_type * sizeof(unsigned int));
+      if (!seiGFV.gfv_num_matrices_info) no_mem_exit("interpret_gfv_info: gfv_num_matrices_info");
+      seiGFV.gfv_matrix_3D_space_flag = (Boolean*)malloc(seiGFV.gfv_num_matrix_type * sizeof(Boolean));
+      if (!seiGFV.gfv_matrix_3D_space_flag) no_mem_exit("interpret_gfv_info: gfv_matrix_3D_space_flag");
+
+      
+      seiGFV.gfv_num_matrices = (unsigned int*)malloc(seiGFV.gfv_num_matrix_type * sizeof(unsigned int));
+      if (!seiGFV.gfv_num_matrices) no_mem_exit("interpret_gfv_info: gfv_num_matrices");
+      seiGFV.gfv_matrix_width = (unsigned int*)malloc(seiGFV.gfv_num_matrix_type * sizeof(unsigned int));
+      if (!seiGFV.gfv_matrix_width) no_mem_exit("interpret_gfv_info: gfv_matrix_width");
+      seiGFV.gfv_matrix_height = (unsigned int*)malloc(seiGFV.gfv_num_matrix_type * sizeof(unsigned int));
+      if (!seiGFV.gfv_matrix_height) no_mem_exit("interpret_gfv_info: gfv_matrix_height");
+
+      for (matrixId = 0; matrixId < seiGFV.gfv_num_matrix_type; matrixId++)
+      {
+        seiGFV.gfv_matrix_type_idx[matrixId] = read_u_v(6, "SEI: gfv_matrix_type_idx", buf, &p_Dec->UsedBits);
+        // CHECK: The value of gfv_matrix_type_idx shall be in the range of 0 to 63, inclusive
+        assert( seiGFV.gfv_matrix_type_idx[matrixId] >= 0 && seiGFV.gfv_matrix_type_idx[matrixId] <= 63 );
+        
+        if (seiGFV.gfv_matrix_type_idx[matrixId] == 0 || seiGFV.gfv_matrix_type_idx[matrixId] == 1)
+        {
+          // CHECK: coordinatePresentFlag shall be 1 when matrix type is 0 or 1
+          assert( seiGFV.gfv_coordinate_present_flag == TRUE );
+          seiGFV.gfv_num_matrices_to_num_kps_flag[matrixId] = read_u_1("SEI: gfv_num_matrices_equal_to_num_kps_flag", buf, &p_Dec->UsedBits);
+          
+          if (!seiGFV.gfv_num_matrices_to_num_kps_flag[matrixId])
+          {
+            seiGFV.gfv_num_matrices_info[matrixId] = read_ue_v("SEI: gfv_num_matrices_info", buf, &p_Dec->UsedBits);
+            // CHECK: The value of gfv_num_matrices_info shall be in the range of 0 to 2^(10) - 1, inclusive
+            assert( seiGFV.gfv_num_matrices_info[matrixId] >= 0 && seiGFV.gfv_num_matrices_info[matrixId] <= (1 << 10) - 1 );
+
+          }
+        }
+        else if (seiGFV.gfv_matrix_type_idx[matrixId] == 2 || seiGFV.gfv_matrix_type_idx[matrixId] == 3 || seiGFV.gfv_matrix_type_idx[matrixId] >= 7)
+        {
+          if (seiGFV.gfv_matrix_type_idx[matrixId] >= 7)
+          {
+            val = read_ue_v("SEI: gfv_num_matrices_minus1", buf, &p_Dec->UsedBits);
+            // CHECK: The value of gfv_num_matrices_minus1 shall be in the range of 0 to 2^(10) - 1, inclusive
+            assert( val >= 0 && val <= ((1 << 10) - 1) );
+            seiGFV.gfv_num_matrices[matrixId] = val + 1;
+          }
+          
+          val = read_ue_v("SEI: gfv_matrix_width_minus1", buf, &p_Dec->UsedBits);
+          // CHECK: The value of gfv_matrix_width_minus1 shall be in the range of 0 to 2^(10) - 1, inclusive
+          assert( val >= 0 && val <= ((1 << 10) - 1) );
+          seiGFV.gfv_matrix_width[matrixId] = val + 1;
+
+          val = read_ue_v("SEI: gfv_matrix_height_minus1", buf, &p_Dec->UsedBits);
+          // CHECK: The value of gfv_matrix_height_minus1 shall be in the range of 0 to 2^(10) - 1, inclusive
+          assert( val >= 0 && val <= ((1 << 10) - 1) );
+          seiGFV.gfv_matrix_height[matrixId] = val + 1;
+        }
+        else if (seiGFV.gfv_matrix_type_idx[matrixId] >= 4 && seiGFV.gfv_matrix_type_idx[matrixId] <= 6)
+        {
+          if ( !seiGFV.gfv_coordinate_present_flag )
+          {
+            seiGFV.gfv_matrix_3D_space_flag[matrixId] = read_u_1("SEI: gfv_Matrix3DSpaceFlag", buf, &p_Dec->UsedBits);
+          }
+          else
+          {
+            seiGFV.gfv_matrix_3D_space_flag[matrixId] = seiGFV.gfv_3d_coordinate_flag;
+          }
+        }
+
+        // Matrix dimensions can be inferred for some cases
+        if (seiGFV.gfv_matrix_type_idx[matrixId] == 0 || seiGFV.gfv_matrix_type_idx[matrixId] == 1)
+        {
+          seiGFV.gfv_matrix_width[matrixId] = seiGFV.gfv_3d_coordinate_flag + 2;
+          seiGFV.gfv_matrix_height[matrixId] = seiGFV.gfv_3d_coordinate_flag + 2;
+        }
+        else if (seiGFV.gfv_matrix_type_idx[matrixId] == 4 )
+        {
+          seiGFV.gfv_matrix_width[matrixId] = seiGFV.gfv_matrix_3D_space_flag[matrixId] + 2;
+          seiGFV.gfv_matrix_height[matrixId] = seiGFV.gfv_matrix_3D_space_flag[matrixId] + 2;
+        }
+        else if (seiGFV.gfv_matrix_type_idx[matrixId] == 5 || seiGFV.gfv_matrix_type_idx[matrixId] == 6)
+        {
+          seiGFV.gfv_matrix_width[matrixId] = 1;
+          seiGFV.gfv_matrix_height[matrixId] = seiGFV.gfv_matrix_3D_space_flag[matrixId] + 2;
+        }
+        
+        // Num matrices can be inferred for some cases
+        if (seiGFV.gfv_matrix_type_idx[matrixId] == 0 || seiGFV.gfv_matrix_type_idx[matrixId] == 1)
+        {
+          if ( seiGFV.gfv_coordinate_present_flag )
+          {
+            seiGFV.gfv_num_matrices[matrixId] = seiGFV.gfv_num_matrices_to_num_kps_flag[matrixId] ? seiGFV.gfv_coordinate_point_num : (seiGFV.gfv_num_matrices_info[matrixId] < (seiGFV.gfv_coordinate_point_num - 1) ? (seiGFV.gfv_num_matrices_info[matrixId] + 1) : (seiGFV.gfv_num_matrices_info[matrixId] + 2));
+          }
+          else
+          {
+            seiGFV.gfv_num_matrices[matrixId] = seiGFV.gfv_num_matrices_info[matrixId] + 1;
+          }
+        }
+        else if (seiGFV.gfv_matrix_type_idx[matrixId] >= 2 && seiGFV.gfv_matrix_type_idx[matrixId] < 7)
+        {
+          seiGFV.gfv_num_matrices[matrixId] = 1;
+        }
+
+        if (seiGFV.gfv_base_pic_flag)
+        {
+          base_num_matrices_vec[matrixId] = seiGFV.gfv_num_matrices[matrixId];
+          base_matrix_width_vec[matrixId] = seiGFV.gfv_matrix_width[matrixId];
+          base_matrix_height_vec[matrixId] = seiGFV.gfv_matrix_height[matrixId];
+        }
+      }
+    }
+    // Pred coding for matrix
+    else
+    {
+      seiGFV.gfv_matrix_element_precision_factor = base_matrix_element_precision_factor;
+      seiGFV.gfv_num_matrix_type = base_num_matrix_type;
+
+#ifdef PRINT_GFV_INFO
+      printf("gfv_matrix_element_precision_factor = %u\n", seiGFV.gfv_matrix_element_precision_factor);
+      printf("gfv_num_matrix_type = %u\n", seiGFV.gfv_num_matrix_type);
+#endif
+
+      // Allocate memory for matrix info
+      seiGFV.gfv_num_matrices = (unsigned int*)malloc(seiGFV.gfv_num_matrix_type * sizeof(unsigned int));
+      if (!seiGFV.gfv_num_matrices) no_mem_exit("interpret_gfv_info: gfv_num_matrices");
+      seiGFV.gfv_matrix_width = (unsigned int*)malloc(seiGFV.gfv_num_matrix_type * sizeof(unsigned int));
+      if (!seiGFV.gfv_matrix_width) no_mem_exit("interpret_gfv_info: gfv_matrix_width");
+      seiGFV.gfv_matrix_height = (unsigned int*)malloc(seiGFV.gfv_num_matrix_type * sizeof(unsigned int));
+      if (!seiGFV.gfv_matrix_height) no_mem_exit("interpret_gfv_info: gfv_matrix_height");
+
+      for (matrixId = 0; matrixId < seiGFV.gfv_num_matrix_type; matrixId++)
+      {
+        seiGFV.gfv_num_matrices[matrixId] = base_num_matrices_vec[matrixId];
+        seiGFV.gfv_matrix_width[matrixId] = base_matrix_width_vec[matrixId];
+        seiGFV.gfv_matrix_height[matrixId] = base_matrix_height_vec[matrixId];
+      }
+    }
+
+#ifdef PRINT_GFV_INFO
+    if ( !seiGFV.gfv_matrix_pred_flag )
+    {
+      printf("gfv_matrix_type_idx = ");
+      for (matrixId = 0; matrixId < seiGFV.gfv_num_matrix_type; matrixId++)
+      {
+        printf("%u ", seiGFV.gfv_matrix_type_idx[matrixId]);
+      }
+      printf("\n");
+    }
+
+    printf("gfv_num_matrices = ");
+    for (matrixId = 0; matrixId < seiGFV.gfv_num_matrix_type; matrixId++)
+    {
+      printf("%u ", seiGFV.gfv_num_matrices[matrixId]);
+    }
+    printf("\n");
+
+    printf("gfv_matrix_width = ");
+    for (matrixId = 0; matrixId < seiGFV.gfv_num_matrix_type; matrixId++)
+    {
+      printf("%u ", seiGFV.gfv_matrix_width[matrixId]);
+    }
+    printf("\n");
+
+    printf("gfv_matrix_height = ");
+    for (matrixId = 0; matrixId < seiGFV.gfv_num_matrix_type; matrixId++)
+    {
+      printf("%u ", seiGFV.gfv_matrix_height[matrixId]);
+    }
+    printf("\n");
+#endif
+
+    // For base pic, free and reallocate base matrix
+    if ( seiGFV.gfv_base_pic_flag ) 
+    {
+      if ( base_matrix )
+      {
+        for (matrixId = 0; matrixId < seiGFV.gfv_num_matrix_type; matrixId++)
+        {
+          for (j = 0; j < base_num_matrices_vec[matrixId]; j++)
+          {
+            for (k = 0; k < base_matrix_height_vec[matrixId]; k++)
+            {
+              free(base_matrix[matrixId][j][k]);
+            }
+            free(base_matrix[matrixId][j]);
+          }
+          free(base_matrix[matrixId]);
+        }
+      }
+
+      if ( prev_matrix )
+      {
+        for (matrixId = 0; matrixId < seiGFV.gfv_num_matrix_type; matrixId++)
+        {
+          for (j = 0; j < base_num_matrices_vec[matrixId]; j++)
+          {
+            for (k = 0; k < base_matrix_height_vec[matrixId]; k++)
+            {
+              free(prev_matrix[matrixId][j][k]);
+            }
+            free(prev_matrix[matrixId][j]);
+          }
+          free(prev_matrix[matrixId]);
+        }
+      }
+
+      base_matrix = (double****) calloc((seiGFV.gfv_num_matrix_type), sizeof(double***));
+      if (!base_matrix) no_mem_exit("interpret_gfv_info: base_matrix");
+
+      for (matrixId = 0; matrixId < seiGFV.gfv_num_matrix_type; matrixId++)
+      {
+        base_matrix[matrixId] = (double***) calloc((base_num_matrices_vec[matrixId]), sizeof(double**));
+        if (!base_matrix[matrixId]) no_mem_exit("interpret_gfv_info: base_matrix[matrixId]");
+
+        for (j = 0; j < base_num_matrices_vec[matrixId]; j++)
+        {
+          base_matrix[matrixId][j] = (double**) calloc((base_matrix_height_vec[matrixId]), sizeof(double*));
+          if (!base_matrix[matrixId][j]) no_mem_exit("interpret_gfv_info: base_matrix[matrixId][j]");
+
+          for (k = 0; k < base_matrix_height_vec[matrixId]; k++)
+          {
+            base_matrix[matrixId][j][k] = (double*) calloc((base_matrix_width_vec[matrixId]), sizeof(double));
+            if (!base_matrix[matrixId][j][k]) no_mem_exit("interpret_gfv_info: base_matrix[matrixId][j][k]");
+          }
+        }
+      }
+
+      prev_matrix = (double****) calloc((seiGFV.gfv_num_matrix_type), sizeof(double***));
+      if (!prev_matrix) no_mem_exit("interpret_gfv_info: prev_matrix");
+
+      for (matrixId = 0; matrixId < seiGFV.gfv_num_matrix_type; matrixId++)
+      {
+        prev_matrix[matrixId] = (double***) calloc((seiGFV.gfv_num_matrices[matrixId]), sizeof(double**));
+        if (!prev_matrix[matrixId]) no_mem_exit("interpret_gfv_info: prev_matrix[matrixId]");
+
+        for (j = 0; j < seiGFV.gfv_num_matrices[matrixId]; j++)
+        {
+          prev_matrix[matrixId][j] = (double**) calloc((seiGFV.gfv_matrix_height[matrixId]), sizeof(double*));
+          if (!prev_matrix[matrixId][j]) no_mem_exit("interpret_gfv_info: prev_matrix[matrixId][j]");
+
+          for (k = 0; k < seiGFV.gfv_matrix_height[matrixId]; k++)
+          {
+            prev_matrix[matrixId][j][k] = (double*) calloc((seiGFV.gfv_matrix_width[matrixId]), sizeof(double));
+            if (!prev_matrix[matrixId][j][k]) no_mem_exit("interpret_gfv_info: prev_matrix[matrixId][j][k]");
+          }
+        }
+      }
+    }
+
+    // Allocate 4D matrix element array
+    seiGFV.gfv_matrix_element = (double****) calloc((seiGFV.gfv_num_matrix_type), sizeof(double***));
+    if (!seiGFV.gfv_matrix_element) no_mem_exit("interpret_gfv_info: gfv_matrix_element");
+#ifdef PRINT_GFV_INFO
+    printf("matrix_element_rec = ");
+#endif
+    for (matrixId = 0; matrixId < seiGFV.gfv_num_matrix_type; matrixId++)
+    {
+      seiGFV.gfv_matrix_element[matrixId] = (double***) calloc((seiGFV.gfv_num_matrices[matrixId]), sizeof(double**));
+      if (!seiGFV.gfv_matrix_element[matrixId]) no_mem_exit("interpret_gfv_info: gfv_matrix_element[matrixId]");
+
+      for (j = 0; j < seiGFV.gfv_num_matrices[matrixId]; j++)
+      {
+        seiGFV.gfv_matrix_element[matrixId][j] = (double**) calloc((seiGFV.gfv_matrix_height[matrixId]), sizeof(double*));
+        if (!seiGFV.gfv_matrix_element[matrixId][j]) no_mem_exit("interpret_gfv_info: gfv_matrix_element[matrixId][j]");
+
+        for (k = 0; k < seiGFV.gfv_matrix_height[matrixId]; k++)
+        {
+          seiGFV.gfv_matrix_element[matrixId][j][k] = (double*) calloc((seiGFV.gfv_matrix_width[matrixId]), sizeof(double));
+          if (!seiGFV.gfv_matrix_element[matrixId][j][k]) no_mem_exit("interpret_gfv_info: gfv_matrix_element[matrixId][j][k]");
+
+          for (l = 0; l < seiGFV.gfv_matrix_width[matrixId]; l++)
+          {
+            // absolute matrix
+            if ( !seiGFV.gfv_matrix_pred_flag )
+            {
+              cur_matrix_element_abs_int = read_ue_v("SEI: gfv_matrix_element_int", buf, &p_Dec->UsedBits);
+              // CHECK: The value of gfv_matrix_element_int[ i ][ j ][ k ][ m ] shall be in the range of 0 to 2^(32) - 2, inclusive
+              assert( cur_matrix_element_abs_int >= 0 && cur_matrix_element_abs_int <= (4294967296 - 2) );
+
+              cur_matrix_element_abs_dec_int_value = read_u_v(seiGFV.gfv_matrix_element_precision_factor, "SEI: gfv_matrix_element_dec", buf, &p_Dec->UsedBits);
+              double cur_matrix_element_abs_decimal = ((double)cur_matrix_element_abs_dec_int_value) / (1 << seiGFV.gfv_matrix_element_precision_factor);
+
+              gfv_value_sign_flag = FALSE;
+              if (cur_matrix_element_abs_int || cur_matrix_element_abs_dec_int_value)
+              {
+                gfv_value_sign_flag = read_u_1("SEI: gfv_matrix_element_sign_flag", buf, &p_Dec->UsedBits);
+              }
+
+              double cur_matrix_element_dec = gfv_value_sign_flag ? -(cur_matrix_element_abs_decimal + cur_matrix_element_abs_int) : (cur_matrix_element_abs_decimal + cur_matrix_element_abs_int);
+              seiGFV.gfv_matrix_element[matrixId][j][k][l] = cur_matrix_element_dec;
+            }
+            // inter-frame difference
+            else
+            {
+              cur_matrix_element_abs_int = read_ue_v("SEI: gfv_matrix_delta_element_int", buf, &p_Dec->UsedBits);
+
+              cur_matrix_element_abs_dec_int_value = read_ue_v("SEI: gfv_matrix_delta_element_dec", buf, &p_Dec->UsedBits);
+              double cur_matrix_element_abs_decimal = ((double)cur_matrix_element_abs_dec_int_value) / (1 << seiGFV.gfv_matrix_element_precision_factor);
+
+              gfv_value_sign_flag = FALSE;
+              if (cur_matrix_element_abs_int || cur_matrix_element_abs_dec_int_value)
+              {
+                gfv_value_sign_flag = read_u_1("SEI: gfv_matrix_delta_element_sign_flag", buf, &p_Dec->UsedBits);
+              }
+
+              // CHECK: matrixPredFlag shall be 0 for base picture
+              assert( seiGFV.gfv_base_pic_flag == FALSE );
+
+              double cur_matrix_element_dec = (gfv_value_sign_flag ? -(cur_matrix_element_abs_decimal + cur_matrix_element_abs_int) : (cur_matrix_element_abs_decimal + cur_matrix_element_abs_int)) + (seiGFV.gfv_cnt == 0 ? base_matrix[matrixId][j][k][l] : prev_matrix[matrixId][j][k][l]);
+              seiGFV.gfv_matrix_element[matrixId][j][k][l] = cur_matrix_element_dec;
+            }
+#ifdef PRINT_GFV_INFO
+            printf("%d (%d) ", cur_matrix_element_abs_int, cur_matrix_element_abs_dec_int_value);
+#endif
+          }
+        }
+      }
+    }
+#ifdef PRINT_GFV_INFO
+    printf("\n");
+#endif
+
+    // print
+#ifdef PRINT_GFV_INFO
+    printf("gfv_matrix_element = ");
+    for (matrixId = 0; matrixId < seiGFV.gfv_num_matrix_type; matrixId++)
+    {
+      for (j = 0; j < seiGFV.gfv_num_matrices[matrixId]; j++)
+      {
+        for (k = 0; k < seiGFV.gfv_matrix_height[matrixId]; k++)
+        {
+          for (l = 0; l < seiGFV.gfv_matrix_width[matrixId]; l++)
+          {
+            printf("%lf ", seiGFV.gfv_matrix_element[matrixId][j][k][l]);
+          }
+        }
+      }
+    }
+    printf("\n");
+#endif
+
+    // copy
+    for (matrixId = 0; matrixId < seiGFV.gfv_num_matrix_type; matrixId++)
+    {
+      for (j = 0; j < seiGFV.gfv_num_matrices[matrixId]; j++)
+      {
+        for (k = 0; k < seiGFV.gfv_matrix_height[matrixId]; k++)
+        {
+          for (l = 0; l < seiGFV.gfv_matrix_width[matrixId]; l++)
+          {
+            prev_matrix[matrixId][j][k][l] = seiGFV.gfv_matrix_element[matrixId][j][k][l];
+            if ( seiGFV.gfv_base_pic_flag )
+            {
+              base_matrix[matrixId][j][k][l] = seiGFV.gfv_matrix_element[matrixId][j][k][l];
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (seiGFV.gfv_nn_present_flag) 
+  {
+    // Mode IDC 0 processing
+    if (seiGFV.gfv_nn_mode_idc == 0) 
+    {
+      // Byte alignment
+      while (p_Dec->UsedBits % 8 != 0)
+      {
+        val = read_u_1("SEI: gfv_nn_alignment_zero_bit_b", buf, &p_Dec->UsedBits);
+        // CHECK: gfv_reserved_zero_bit_b shall be equal to zero
+        assert( val == 0 );
+      }
+
+      seiGFV.gfv_payload_length = (8 * size - p_Dec->UsedBits) / 8;
+      if (seiGFV.gfv_payload_length > 0)
+      {
+        seiGFV.gfv_payload_byte = malloc(seiGFV.gfv_payload_length);
+
+        int code;
+        char filename[256];
+        sprintf(filename, "payloadByte%u.nnr", id);
+
+        FILE* outFile = fopen(filename, "wb");
+        for (i = 0; i < seiGFV.gfv_payload_length; i++)
+        {
+          code = read_u_v(8, "SEI: gfv_nn_payload_byte[i]", buf, &p_Dec->UsedBits);
+          seiGFV.gfv_payload_byte[i] = code;
+          fwrite(&code, 1, 1, outFile);
+        }
+        fclose(outFile);
+#ifdef PRINT_GFV_INFO
+        printf("gfv_payload_length = %lu bytes\n", seiGFV.gfv_payload_length);
+#endif
+      }
+    }
+
+    if (p_Dec->UsedBits % 8 != 0)
+    {
+      printf("interpret_gfv_info: %d bits left\n", 8 - (p_Dec->UsedBits % 8));
+    }
+#ifdef PRINT_GFV_INFO
+    printf("\n");
+#endif
+  }
+  
+  // Free allocated memory
+  if (seiGFV.gfv_matrix_element) 
+  {
+    for (matrixId = 0; matrixId < seiGFV.gfv_num_matrix_type; matrixId++)
+    {
+      if (seiGFV.gfv_matrix_element[matrixId])
+      {
+        for (j = 0; j < seiGFV.gfv_num_matrices[matrixId]; j++)
+        {
+          if (seiGFV.gfv_matrix_element[matrixId][j])
+          {
+            for (k = 0; k < seiGFV.gfv_matrix_height[matrixId]; k++)
+            {
+              if (seiGFV.gfv_matrix_element[matrixId][j][k]) 
+              {
+                free(seiGFV.gfv_matrix_element[matrixId][j][k]);
+              }
+            }
+            free(seiGFV.gfv_matrix_element[matrixId][j]);
+          }
+        }
+        free(seiGFV.gfv_matrix_element[matrixId]);
+      }
+    }
+    free(seiGFV.gfv_matrix_element);
+  }
+  
+  if (seiGFV.gfv_coordinate_x) free(seiGFV.gfv_coordinate_x);
+  if (seiGFV.gfv_coordinate_y) free(seiGFV.gfv_coordinate_y);
+  if (seiGFV.gfv_coordinate_z) free(seiGFV.gfv_coordinate_z);
+  
+  if (seiGFV.gfv_matrix_type_idx) free(seiGFV.gfv_matrix_type_idx);
+  if (seiGFV.gfv_num_matrices_to_num_kps_flag) free(seiGFV.gfv_num_matrices_to_num_kps_flag);
+  if (seiGFV.gfv_num_matrices_info) free(seiGFV.gfv_num_matrices_info);
+  if (seiGFV.gfv_matrix_3D_space_flag) free(seiGFV.gfv_matrix_3D_space_flag);
+
+  if (seiGFV.gfv_num_matrices) free(seiGFV.gfv_num_matrices);
+  if (seiGFV.gfv_matrix_width) free(seiGFV.gfv_matrix_width);
+  if (seiGFV.gfv_matrix_height) free(seiGFV.gfv_matrix_height);
+  
+  if (seiGFV.gfv_payload_byte) free(seiGFV.gfv_payload_byte);
+
+  free(buf);
+}
+#endif
+
+#if JVET_AK0239_GFVE_SEI
+/*!
+ ************************************************************************
+ *  \brief
+ *     Interpret the Generative Face Video Enhancement (GFVE) SEI message
+ *  \param payload
+ *     a pointer that point to the sei payload
+ *  \param size
+ *     the size of the sei message
+ *  \param p_Vid
+ *     the image pointer
+ *
+ ************************************************************************
+ */
+void interpret_gfve_info( byte* payload, int size, VideoParameters *p_Vid )
+{
+  Bitstream *buf;
+
+  generative_face_video_enhancement_struct seiGFVE;
+  memset(&seiGFVE, 0, sizeof(generative_face_video_enhancement_struct));
+
+  unsigned int val, i;
+  unsigned int gfve_id, gfve_gfv_id, gfve_gfv_cnt;
+  unsigned char temp_char;
+  Boolean gfve_value_sign_flag;
+  unsigned int matrixId, j, k;
+  
+  int gfve_cur_matrix_element_abs_int, gfve_cur_matrix_element_abs_dec_int_value;
+
+  double gfve_left_pupil_coordinate_x_ref = 0, gfve_left_pupil_coordinate_y_ref = 0;
+  double gfve_right_pupil_coordinate_x_ref = 0, gfve_right_pupil_coordinate_y_ref = 0;
+  
+  
+  buf = malloc(sizeof(Bitstream));
+  if (!buf) no_mem_exit("interpret_gfve_info: Cannot allocate bitstream");
+  buf->bitstream_length = size;
+  buf->streamBuffer = payload;
+  buf->frame_bitoffset = 0;
+
+  p_Dec->UsedBits = 0;
+
+#ifdef PRINT_GFVE_INFO
+  printf("GFVE SEI message\n");
+#endif
+
+  seiGFVE.gfve_id = read_ue_v("SEI: gfve_id", buf, &p_Dec->UsedBits);
+  gfve_id = seiGFVE.gfve_id;
+
+  seiGFVE.gfve_gfv_id = read_ue_v("SEI: gfve_gfv_id", buf, &p_Dec->UsedBits);
+  gfve_gfv_id = seiGFVE.gfve_gfv_id;
+
+  seiGFVE.gfve_gfv_cnt = read_ue_v("SEI: gfve_gfv_cnt", buf, &p_Dec->UsedBits);
+  gfve_gfv_cnt = seiGFVE.gfve_gfv_cnt;
+
+  if (seiGFVE.gfve_gfv_cnt == 0) {
+    seiGFVE.gfve_base_pic_flag = read_u_1("SEI: gfve_base_picture_flag", buf, &p_Dec->UsedBits);
+  }
+  else {
+    seiGFVE.gfve_base_pic_flag = FALSE;
+  }
+
+#ifdef PRINT_GFVE_INFO
+  printf("gfve_id = %u\n", seiGFVE.gfve_id);
+  printf("gfve_gfv_id = %u\n", seiGFVE.gfve_gfv_id);
+  printf("gfve_gfv_cnt = %u\n", seiGFVE.gfve_gfv_cnt);
+  printf("gfve_base_pic_flag = %u\n", seiGFVE.gfve_base_pic_flag);
+#endif
+
+  if (seiGFVE.gfve_base_pic_flag) 
+  {
+    seiGFVE.gfve_nn_present_flag = read_u_1("SEI: gfve_nn_present_flag", buf, &p_Dec->UsedBits);
+
+    if (seiGFVE.gfve_nn_present_flag) 
+    {
+      seiGFVE.gfve_nn_mode_idc = read_ue_v("SEI: gfve_mode_idc", buf, &p_Dec->UsedBits);
+
+#ifdef PRINT_GFVE_INFO
+      printf("gfve_nn_mode_idc = %u\n", seiGFVE.gfve_nn_mode_idc);
+#endif
+
+      // Mode IDC 1 processing, to signal NN
+      if (seiGFVE.gfve_nn_mode_idc == 1) 
+      {
+        // Byte alignment
+        while (p_Dec->UsedBits % 8 != 0)
+        {
+          val = read_u_1("SEI: gfve_nn_alignment_zero_bit_a", buf, &p_Dec->UsedBits);
+          // CHECK: gfve_nn_alignment_zero_bit_a shall be equal to zero
+          assert( val == 0 );
+        }
+
+        i = 0;
+        do 
+        {
+          temp_char = read_u_v(8, "SEI: gfve_nn_tag_uri", buf, &p_Dec->UsedBits);
+          seiGFVE.gfve_nn_tag_uri[i++] = temp_char;
+        } while (temp_char != '\0' && i < 4095);
+        seiGFVE.gfve_nn_tag_uri[4095] = '\0';
+
+        i = 0;
+        do 
+        {
+          temp_char = read_u_v(8, "SEI: gfve_nn_uri", buf, &p_Dec->UsedBits);
+          seiGFVE.gfve_nn_uri[i++] = temp_char;
+        } while (temp_char != '\0' && i < 4095);
+        seiGFVE.gfve_nn_uri[4095] = '\0';
+        
+#ifdef PRINT_GFVE_INFO
+        printf("gfve_nn_tag_uri = %s\n", seiGFVE.gfve_nn_tag_uri);
+        printf("gfve_nn_uri = %s\n", seiGFVE.gfve_nn_uri);
+#endif
+      }
+    }
+  }
+
+  // Matrix parameters
+  seiGFVE.gfve_matrix_present_flag = read_u_1("SEI: gfve_matrix_present_flag", buf, &p_Dec->UsedBits);
+#ifdef PRINT_GFVE_INFO
+  printf("gfve_matrix_present_flag = %u\n", seiGFVE.gfve_matrix_present_flag);
+#endif
+
+  if (seiGFVE.gfve_matrix_present_flag)
+  {
+    if ( !seiGFVE.gfve_base_pic_flag )
+    {
+      seiGFVE.gfve_matrix_pred_flag = read_u_1("SEI: gfve_matrix_pred_flag", buf, &p_Dec->UsedBits);
+    }
+    else
+    {
+      seiGFVE.gfve_matrix_pred_flag = FALSE;
+    }
+#ifdef PRINT_GFVE_INFO
+    printf("gfve_matrix_pred_flag = %u\n", seiGFVE.gfve_matrix_pred_flag);
+#endif
+
+    if ( !seiGFVE.gfve_matrix_pred_flag )
+    {
+      val = read_ue_v("SEI: gfve_matrix_element_precision_factor_minus1", buf, &p_Dec->UsedBits);
+      // CHECK: The value of gfve_matrix_element_precision_factor_minus1 shall be in the range of 0 to 31, inclusive
+      assert( val >= 0 && val <= 31 );
+      seiGFVE.gfve_matrix_element_precision_factor = val + 1;
+
+      val = read_ue_v("SEI: gfve_num_matrices_minus1", buf, &p_Dec->UsedBits);
+      seiGFVE.gfve_num_matrices = val + 1;
+
+#ifdef PRINT_GFVE_INFO
+      printf("gfve_matrix_element_precision_factor = %u\n", seiGFVE.gfve_matrix_element_precision_factor);
+      printf("gfve_num_matrices = %u\n", seiGFVE.gfve_num_matrices);
+#endif
+
+      if (seiGFVE.gfve_base_pic_flag)
+      {
+        base_gfve_matrix_element_precision_factor = seiGFVE.gfve_matrix_element_precision_factor;
+        base_gfve_num_matrices = seiGFVE.gfve_num_matrices;
+
+        // For base pic, free and reallocate base matrix info
+        if (base_gfve_matrix_width_vec) free(base_gfve_matrix_width_vec);
+        base_gfve_matrix_width_vec = (unsigned int*)malloc(seiGFVE.gfve_num_matrices * sizeof(unsigned int));
+        if (!base_gfve_matrix_width_vec) no_mem_exit("interpret_gfve_info: base_gfve_matrix_width_vec");
+        
+        if (base_gfve_matrix_height_vec) free(base_gfve_matrix_height_vec);
+        base_gfve_matrix_height_vec = (unsigned int*)malloc(seiGFVE.gfve_num_matrices * sizeof(unsigned int));
+        if (!base_gfve_matrix_height_vec) no_mem_exit("interpret_gfve_info: base_gfve_matrix_height_vec");
+      }
+            
+      // Allocate memory for matrix info
+      seiGFVE.gfve_matrix_width = (unsigned int*)malloc(seiGFVE.gfve_num_matrices * sizeof(unsigned int));
+      if (!seiGFVE.gfve_matrix_width) no_mem_exit("interpret_gfve_info: gfve_matrix_width");
+      seiGFVE.gfve_matrix_height = (unsigned int*)malloc(seiGFVE.gfve_num_matrices * sizeof(unsigned int));
+      if (!seiGFVE.gfve_matrix_height) no_mem_exit("interpret_gfve_info: gfve_matrix_height");
+
+      for (matrixId = 0; matrixId < seiGFVE.gfve_num_matrices; matrixId++)
+      {
+        val = read_ue_v("SEI: gfve_matrix_height_minus1", buf, &p_Dec->UsedBits);
+        seiGFVE.gfve_matrix_height[matrixId] = val + 1;
+
+        val = read_ue_v("SEI: gfve_matrix_width_minus1", buf, &p_Dec->UsedBits);
+        seiGFVE.gfve_matrix_width[matrixId] = val + 1;
+
+        if (seiGFVE.gfve_base_pic_flag)
+        {
+          base_gfve_matrix_width_vec[matrixId] = seiGFVE.gfve_matrix_width[matrixId];
+          base_gfve_matrix_height_vec[matrixId] = seiGFVE.gfve_matrix_height[matrixId];
+        }
+      }
+    }
+    // Pred coding for matrix
+    else
+    {
+      seiGFVE.gfve_matrix_element_precision_factor = base_gfve_matrix_element_precision_factor;
+      seiGFVE.gfve_num_matrices = base_gfve_num_matrices;
+            
+      // Allocate memory for matrix info
+      seiGFVE.gfve_matrix_width = (unsigned int*)malloc(seiGFVE.gfve_num_matrices * sizeof(unsigned int));
+      if (!seiGFVE.gfve_matrix_width) no_mem_exit("interpret_gfve_info: gfve_matrix_width");
+      seiGFVE.gfve_matrix_height = (unsigned int*)malloc(seiGFVE.gfve_num_matrices * sizeof(unsigned int));
+      if (!seiGFVE.gfve_matrix_height) no_mem_exit("interpret_gfve_info: gfve_matrix_height");
+      
+      for (matrixId = 0; matrixId < seiGFVE.gfve_num_matrices; matrixId++)
+      {
+        seiGFVE.gfve_matrix_width[matrixId] = base_gfve_matrix_width_vec[matrixId];
+        seiGFVE.gfve_matrix_height[matrixId] = base_gfve_matrix_height_vec[matrixId];
+      }
+    }
+
+#ifdef PRINT_GFVE_INFO
+    printf("gfve_matrix_width = ");
+    for (matrixId = 0; matrixId < seiGFVE.gfve_num_matrices; matrixId++)
+    {
+      printf("%u ", seiGFVE.gfve_matrix_width[matrixId]);
+    }
+    printf("\n");
+
+    printf("gfve_matrix_height = ");
+    for (matrixId = 0; matrixId < seiGFVE.gfve_num_matrices; matrixId++)
+    {
+      printf("%u ", seiGFVE.gfve_matrix_height[matrixId]);
+    }
+    printf("\n");
+#endif
+
+    // For base pic, free and reallocate base matrix
+    if ( seiGFVE.gfve_base_pic_flag ) 
+    {
+      if ( base_gfve_matrix )
+      {
+        for (matrixId = 0; matrixId < seiGFVE.gfve_num_matrices; matrixId++)
+        {
+          for (j = 0; j < base_gfve_matrix_height_vec[matrixId]; j++)
+          {
+            free(base_gfve_matrix[matrixId][j]);
+          }
+          free(base_gfve_matrix[matrixId]);
+        }
+      }
+
+      if ( prev_gfve_matrix )
+      {
+        for (matrixId = 0; matrixId < seiGFVE.gfve_num_matrices; matrixId++)
+        {
+          for (j = 0; j < base_gfve_matrix_height_vec[matrixId]; j++)
+          {
+            free(prev_gfve_matrix[matrixId][j]);
+          }
+          free(prev_gfve_matrix[matrixId]);
+        }
+      }
+
+      base_gfve_matrix = (double***) calloc((seiGFVE.gfve_num_matrices), sizeof(double**));
+      if (!base_gfve_matrix) no_mem_exit("interpret_gfve_info: base_gfve_matrix_rec");
+
+      for (matrixId = 0; matrixId < seiGFVE.gfve_num_matrices; matrixId++)
+      {
+        base_gfve_matrix[matrixId] = (double**) calloc((base_gfve_matrix_height_vec[matrixId]), sizeof(double*));
+        if (!base_gfve_matrix[matrixId]) no_mem_exit("interpret_gfve_info: base_gfve_matrix[matrixId]");
+
+        for (j = 0; j < base_gfve_matrix_height_vec[matrixId]; j++)
+        {
+          base_gfve_matrix[matrixId][j] = (double*) calloc((base_gfve_matrix_width_vec[matrixId]), sizeof(double));
+          if (!base_gfve_matrix[matrixId][j]) no_mem_exit("interpret_gfve_info: base_gfve_matrix[matrixId][j]");
+        }
+      }
+
+      prev_gfve_matrix = (double***) calloc((seiGFVE.gfve_num_matrices), sizeof(double**));
+      if (!prev_gfve_matrix) no_mem_exit("interpret_gfve_info: prev_gfve_matrix");
+
+      for (matrixId = 0; matrixId < seiGFVE.gfve_num_matrices; matrixId++)
+      {
+        prev_gfve_matrix[matrixId] = (double**) calloc((base_gfve_matrix_height_vec[matrixId]), sizeof(double*));
+        if (!prev_gfve_matrix[matrixId]) no_mem_exit("interpret_gfve_info: prev_gfve_matrix[matrixId]");
+
+        for (j = 0; j < base_gfve_matrix_height_vec[matrixId]; j++)
+        {
+          prev_gfve_matrix[matrixId][j] = (double*) calloc((base_gfve_matrix_width_vec[matrixId]), sizeof(double));
+          if (!prev_gfve_matrix[matrixId][j]) no_mem_exit("interpret_gfve_info: prev_gfve_matrix[matrixId][j]");
+        }
+      }
+    }
+
+    // Allocate 3D matrix element array
+    seiGFVE.gfve_matrix_element = (double***) calloc((seiGFVE.gfve_num_matrices), sizeof(double**));
+    if (!seiGFVE.gfve_matrix_element) no_mem_exit("interpret_gfve_info: gfve_matrix_element");
+#ifdef PRINT_GFVE_INFO
+    printf("gfve_matrix_element_rec = ");
+#endif
+    for (matrixId = 0; matrixId < seiGFVE.gfve_num_matrices; matrixId++)
+    {
+      seiGFVE.gfve_matrix_element[matrixId] = (double**) calloc((seiGFVE.gfve_matrix_height[matrixId]), sizeof(double*));
+      if (!seiGFVE.gfve_matrix_element[matrixId]) no_mem_exit("interpret_gfve_info: gfve_matrix_element[matrixId]");
+
+      for (j = 0; j < seiGFVE.gfve_matrix_height[matrixId]; j++)
+      {
+        seiGFVE.gfve_matrix_element[matrixId][j] = (double*) calloc((seiGFVE.gfve_matrix_width[matrixId]), sizeof(double));
+        if (!seiGFVE.gfve_matrix_element[matrixId][j]) no_mem_exit("interpret_gfve_info: gfve_matrix_element[matrixId][j]");
+
+        for (k = 0; k < seiGFVE.gfve_matrix_width[matrixId]; k++)
+        {
+          // absolute matrix
+          if ( !seiGFVE.gfve_matrix_pred_flag )
+          {
+            gfve_cur_matrix_element_abs_int = read_ue_v("SEI: gfve_matrix_element_int", buf, &p_Dec->UsedBits);
+            // CHECK: The value of gfve_matrix_element_int[ j ][ k ][ m ] shall be in the range of 0 to 2^(32) - 2, inclusive
+            assert( gfve_cur_matrix_element_abs_int >= 0 && gfve_cur_matrix_element_abs_int <= (4294967296 - 2) );
+
+            gfve_cur_matrix_element_abs_dec_int_value = read_u_v(seiGFVE.gfve_matrix_element_precision_factor, "SEI: gfve_matrix_element_dec", buf, &p_Dec->UsedBits);
+            double gfve_cur_matrix_element_abs_decimal = ((double)gfve_cur_matrix_element_abs_dec_int_value) / (1 << seiGFVE.gfve_matrix_element_precision_factor);
+
+            gfve_value_sign_flag = FALSE;
+            if (gfve_cur_matrix_element_abs_int || gfve_cur_matrix_element_abs_dec_int_value)
+            {
+              gfve_value_sign_flag = read_u_1("SEI: gfve_matrix_element_sign_flag", buf, &p_Dec->UsedBits);
+            }
+
+            double gfve_cur_matrix_element_dec = gfve_value_sign_flag ? -(gfve_cur_matrix_element_abs_decimal + gfve_cur_matrix_element_abs_int) : (gfve_cur_matrix_element_abs_decimal + gfve_cur_matrix_element_abs_int);
+            seiGFVE.gfve_matrix_element[matrixId][j][k] = gfve_cur_matrix_element_dec;
+          }
+          // inter-frame difference
+          else
+          {
+            gfve_cur_matrix_element_abs_int = read_ue_v("SEI: gfve_matrix_delta_element_int", buf, &p_Dec->UsedBits);
+            // CHECK: The value of gfve_matrix_delta_element_int[ j ][ k ][ m ] shall be in the range of 0 to 2^(32) - 2, inclusive
+            assert( gfve_cur_matrix_element_abs_int >= 0 && gfve_cur_matrix_element_abs_int <= (4294967296 - 2) );
+
+            gfve_cur_matrix_element_abs_dec_int_value = read_u_v(seiGFVE.gfve_matrix_element_precision_factor, "SEI: gfve_matrix_delta_element_dec", buf, &p_Dec->UsedBits);
+            double gfve_cur_matrix_element_abs_decimal = ((double)gfve_cur_matrix_element_abs_dec_int_value) / (1 << seiGFVE.gfve_matrix_element_precision_factor);
+
+            gfve_value_sign_flag = FALSE;
+            if (gfve_cur_matrix_element_abs_int || gfve_cur_matrix_element_abs_dec_int_value)
+            {
+              gfve_value_sign_flag = read_u_1("SEI: gfve_matrix_delta_element_sign_flag", buf, &p_Dec->UsedBits);
+            }
+
+            double gfve_cur_matrix_element_dec = (gfve_value_sign_flag ? -(gfve_cur_matrix_element_abs_decimal + gfve_cur_matrix_element_abs_int) : (gfve_cur_matrix_element_abs_decimal + gfve_cur_matrix_element_abs_int)) + (seiGFVE.gfve_gfv_cnt == 0 ? base_gfve_matrix[matrixId][j][k] : prev_gfve_matrix[matrixId][j][k]);
+            seiGFVE.gfve_matrix_element[matrixId][j][k] = gfve_cur_matrix_element_dec;
+          }
+#ifdef PRINT_GFVE_INFO
+          printf("%d (%d) ", gfve_cur_matrix_element_abs_int, gfve_cur_matrix_element_abs_dec_int_value);
+#endif
+        }
+      }
+      
+    }
+#ifdef PRINT_GFV_INFO
+    printf("\n");
+#endif
+
+    // print
+#ifdef PRINT_GFVE_INFO
+    printf("gfve_matrix_element = ");
+    for (matrixId = 0; matrixId < seiGFVE.gfve_num_matrices; matrixId++)
+    {
+      for (j = 0; j < seiGFVE.gfve_matrix_height[matrixId]; j++)
+      {
+        for (k = 0; k < seiGFVE.gfve_matrix_width[matrixId]; k++)
+        {
+          printf("%lf ", seiGFVE.gfve_matrix_element[matrixId][j][k]);
+        }
+      }
+    }
+    printf("\n");
+#endif
+
+    // copy
+    for (matrixId = 0; matrixId < seiGFVE.gfve_num_matrices; matrixId++)
+    {
+      for (j = 0; j < seiGFVE.gfve_matrix_height[matrixId]; j++)
+      {
+        for (k = 0; k < seiGFVE.gfve_matrix_width[matrixId]; k++)
+        {
+          prev_gfve_matrix[matrixId][j][k] = seiGFVE.gfve_matrix_element[matrixId][j][k];
+          if ( seiGFVE.gfve_base_pic_flag )
+          {
+            base_gfve_matrix[matrixId][j][k] = seiGFVE.gfve_matrix_element[matrixId][j][k];
+          }
+        }
+      }
+    }
+  }
+
+  // Pupils in GFVE
+  seiGFVE.gfve_pupil_present_idx = read_u_v(2, "SEI: gfve_pupil_coordinate_present_idx", buf, &p_Dec->UsedBits);
+#ifdef PRINT_GFVE_INFO
+  printf("gfve_pupil_coordinate_present_idx = %u\n", seiGFVE.gfve_pupil_present_idx);
+#endif
+  
+  if ( seiGFVE.gfve_pupil_present_idx )
+  {
+    if ( seiGFVE.gfve_base_pic_flag )
+    {
+      check_base_pic_pupil_present_idx = TRUE;
+
+      val = read_ue_v("SEI: gfve_pupil_coordinate_precision_factor_minus1", buf, &p_Dec->UsedBits);
+      // CHECK: The value of gfve_pupil_coordinate_precision_factor_minus1 shall be in the range of 0 to 31, inclusive
+      assert( val >= 0 && val <= 31 );
+      seiGFVE.gfve_pupil_coordinate_precision_factor = val + 1;
+
+      base_gfve_pupil_coordinate_precision_factor = seiGFVE.gfve_pupil_coordinate_precision_factor;
+    }
+    else
+    {
+      seiGFVE.gfve_pupil_coordinate_precision_factor = base_gfve_pupil_coordinate_precision_factor;
+    }
+  }
+
+  if ( check_base_pic_pupil_present_idx )
+  {
+    // set the reference coordinate for this frame
+    if ( seiGFVE.gfve_gfv_cnt == 0 )
+    {
+      if ( !seiGFVE.gfve_base_pic_flag )
+      {
+        gfve_left_pupil_coordinate_x_ref = base_gfve_left_pupil_coordinate_x;
+        gfve_left_pupil_coordinate_y_ref = base_gfve_left_pupil_coordinate_y;
+        gfve_right_pupil_coordinate_x_ref = base_gfve_right_pupil_coordinate_x;
+        gfve_right_pupil_coordinate_y_ref = base_gfve_right_pupil_coordinate_y;
+      }
+    }
+    else
+    {
+      gfve_left_pupil_coordinate_x_ref = prev_gfve_left_pupil_coordinate_x;
+      gfve_left_pupil_coordinate_y_ref = prev_gfve_left_pupil_coordinate_y;
+      gfve_right_pupil_coordinate_x_ref = prev_gfve_right_pupil_coordinate_x;
+      gfve_right_pupil_coordinate_y_ref = prev_gfve_right_pupil_coordinate_y;
+    }
+
+    // Left Pupil: for idx 1 and 3
+    if ( seiGFVE.gfve_pupil_present_idx == 1 || seiGFVE.gfve_pupil_present_idx == 3 )
+    {
+      seiGFVE.gfve_pupil_left_eye_coordinate_x = ReadGFVEPupilCoordinate(&buf, gfve_left_pupil_coordinate_x_ref, seiGFVE.gfve_pupil_coordinate_precision_factor, "left", "x");
+      seiGFVE.gfve_pupil_left_eye_coordinate_y = ReadGFVEPupilCoordinate(&buf, gfve_left_pupil_coordinate_y_ref, seiGFVE.gfve_pupil_coordinate_precision_factor, "left", "y");
+    }
+    else
+    {
+      seiGFVE.gfve_pupil_left_eye_coordinate_x = gfve_left_pupil_coordinate_x_ref;
+      seiGFVE.gfve_pupil_left_eye_coordinate_y = gfve_left_pupil_coordinate_y_ref;
+    }
+  
+    // right pupil reference from left pupil in base pic
+    if ( seiGFVE.gfve_base_pic_flag )
+    {
+      gfve_right_pupil_coordinate_x_ref = seiGFVE.gfve_pupil_left_eye_coordinate_x;
+      gfve_right_pupil_coordinate_y_ref = seiGFVE.gfve_pupil_left_eye_coordinate_y;
+    }
+
+    // RIght Pupil: for idx 2 and 3
+    if ( seiGFVE.gfve_pupil_present_idx == 2 || seiGFVE.gfve_pupil_present_idx == 3 )
+    {
+      seiGFVE.gfve_pupil_right_eye_coordinate_x = ReadGFVEPupilCoordinate(&buf, gfve_right_pupil_coordinate_x_ref, seiGFVE.gfve_pupil_coordinate_precision_factor, "right", "x");
+      seiGFVE.gfve_pupil_right_eye_coordinate_y = ReadGFVEPupilCoordinate(&buf, gfve_right_pupil_coordinate_y_ref, seiGFVE.gfve_pupil_coordinate_precision_factor, "right", "y");
+    }
+    else
+    {
+      seiGFVE.gfve_pupil_right_eye_coordinate_x = gfve_right_pupil_coordinate_x_ref;
+      seiGFVE.gfve_pupil_right_eye_coordinate_y = gfve_right_pupil_coordinate_y_ref;
+    }
+
+#ifdef PRINT_GFVE_INFO
+    printf("Pupils: Left -- [%lf , %lf], ", seiGFVE.gfve_pupil_left_eye_coordinate_x, seiGFVE.gfve_pupil_left_eye_coordinate_y);
+    printf("Right -- [%lf , %lf]\n", seiGFVE.gfve_pupil_right_eye_coordinate_x, seiGFVE.gfve_pupil_right_eye_coordinate_y);
+#endif
+
+    if (seiGFVE.gfve_base_pic_flag)
+    {
+      base_gfve_left_pupil_coordinate_x = seiGFVE.gfve_pupil_left_eye_coordinate_x;
+      base_gfve_left_pupil_coordinate_y = seiGFVE.gfve_pupil_left_eye_coordinate_y;
+      base_gfve_right_pupil_coordinate_x = seiGFVE.gfve_pupil_right_eye_coordinate_x;
+      base_gfve_right_pupil_coordinate_y = seiGFVE.gfve_pupil_right_eye_coordinate_y;
+    }
+
+    prev_gfve_left_pupil_coordinate_x = seiGFVE.gfve_pupil_left_eye_coordinate_x;
+    prev_gfve_left_pupil_coordinate_y = seiGFVE.gfve_pupil_left_eye_coordinate_y;
+    prev_gfve_right_pupil_coordinate_x = seiGFVE.gfve_pupil_right_eye_coordinate_x;
+    prev_gfve_right_pupil_coordinate_y = seiGFVE.gfve_pupil_right_eye_coordinate_y;
+  }
+  
+  if (seiGFVE.gfve_nn_present_flag) 
+  {
+    // Mode IDC 0 processing
+    if (seiGFVE.gfve_nn_mode_idc == 0) 
+    {
+      // Byte alignment
+      while (p_Dec->UsedBits % 8 != 0)
+      {
+        val = read_u_1("SEI: gfve_nn_alignment_zero_bit_b", buf, &p_Dec->UsedBits);
+        // CHECK: gfve_nn_alignment_zero_bit_b shall be equal to zero
+        assert( val == 0 );
+      }
+
+      seiGFVE.gfve_payload_length = (8 * size - p_Dec->UsedBits) / 8;
+      if (seiGFVE.gfve_payload_length > 0)
+      {
+        seiGFVE.gfve_payload_byte = malloc(seiGFVE.gfve_payload_length);
+
+        int code;
+        char filename[256];
+        sprintf(filename, "payloadByte_%u_%u.nnr", gfve_id, gfve_gfv_id);
+
+        FILE* outFile = fopen(filename, "wb");
+        for (i = 0; i < seiGFVE.gfve_payload_length; i++)
+        {
+          code = read_u_v(8, "SEI: gfve_nn_payload_byte[i]", buf, &p_Dec->UsedBits);
+          seiGFVE.gfve_payload_byte[i] = code;
+          fwrite(&code, 1, 1, outFile);
+        }
+        fclose(outFile);
+#ifdef PRINT_GFVE_INFO
+        printf("gfve_payload_length = %lu bytes\n", seiGFVE.gfve_payload_length);
+#endif
+      }
+    }
+
+    if (p_Dec->UsedBits % 8 != 0)
+    {
+      printf("interpret_gfve_info: %d bits left\n", 8 - (p_Dec->UsedBits % 8));
+    }
+#ifdef PRINT_GFVE_INFO
+    printf("\n");
+#endif
+  }
+
+  // Free allocated memory
+  if (seiGFVE.gfve_matrix_element) 
+  {
+    for (matrixId = 0; matrixId < seiGFVE.gfve_num_matrices; matrixId++)
+    {
+      if (seiGFVE.gfve_matrix_element[matrixId])
+      {
+        for (j = 0; j < seiGFVE.gfve_matrix_height[matrixId]; j++)
+        {
+          if (seiGFVE.gfve_matrix_element[matrixId][j])
+          {
+            free(seiGFVE.gfve_matrix_element[matrixId][j]);
+          }
+        }
+        free(seiGFVE.gfve_matrix_element[matrixId]);
+      }
+    }
+    free(seiGFVE.gfve_matrix_element);
+  }
+
+  if (seiGFVE.gfve_matrix_width) free(seiGFVE.gfve_matrix_width);
+  if (seiGFVE.gfve_matrix_height) free(seiGFVE.gfve_matrix_height);
+
+  if (seiGFVE.gfve_payload_byte) free(seiGFVE.gfve_payload_byte);
+
+  free(buf);
+}
+
+double ReadGFVEPupilCoordinate(Bitstream **ptr_buf, double ref_coordinate, int precision_factor, const char* eye, const char* axis)
+{
+  Bitstream* buf = *ptr_buf;
+
+  unsigned int gfve_pupil_abs_int_value;
+  Boolean gfve_pupil_signflag;
+  char gfve_pupil_check_message[256];
+  char gfve_pupil_abs_symbol_name[256];
+  char gfve_pupil_sign_symbol_name[256];
+
+  // CHECK: Invalid value for 'eye'. Allowed values are 'left' or 'right'.
+  assert( strcmp(eye, "left") == 0 || strcmp(eye, "right") == 0 );
+  // CHECK: Invalid value for 'axis'. Allowed values are 'x' or 'y'.
+  assert( strcmp(axis, "x") == 0 || strcmp(axis, "y") == 0 );
+
+  snprintf(gfve_pupil_check_message, sizeof(gfve_pupil_check_message), "The value of gfve_pupil_%s_eye_d%s_coordinate_abs shall be in the range of 0 to 1 << (gfve_pupil_coordinate_precision_factor_minus1 + 2), inclusive", eye, axis);
+  snprintf(gfve_pupil_abs_symbol_name, sizeof(gfve_pupil_abs_symbol_name), "SEI: gfve_pupil_%s_eye_d%s_coordinate_abs", eye, axis);
+
+  gfve_pupil_abs_int_value = read_ue_v(gfve_pupil_abs_symbol_name, buf, &p_Dec->UsedBits);
+  if (gfve_pupil_abs_int_value < 0 || gfve_pupil_abs_int_value > (1 << (precision_factor + 1))) {
+    error(gfve_pupil_check_message, 500);
+  }
+
+  double pupil_coordinate_abs = ((double)gfve_pupil_abs_int_value) / (1 << precision_factor);
+
+#ifdef PRINT_GFVE_INFO
+  printf("%s (%d)\n", gfve_pupil_abs_symbol_name, gfve_pupil_abs_int_value);
+#endif
+
+  gfve_pupil_signflag = FALSE;
+  if ( gfve_pupil_abs_int_value )
+  {
+    snprintf(gfve_pupil_sign_symbol_name, sizeof(gfve_pupil_sign_symbol_name), "SEI: gfve_pupil_%s_eye_d%s_coordinate_sign_flag", eye, axis);
+    gfve_pupil_signflag = read_u_1(gfve_pupil_sign_symbol_name, buf, &p_Dec->UsedBits);
+  }
+
+  return (gfve_pupil_signflag ? -pupil_coordinate_abs : pupil_coordinate_abs) + ref_coordinate;
+}
+#endif
 #endif

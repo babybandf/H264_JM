@@ -450,6 +450,16 @@ Mapping Map[] = {
     {"ToneMappingSEIPresentFlag",&cfgparams.ToneMappingSEIPresentFlag,    0,   0.0,                       1,  0.0,              1.0,                             },
     {"ToneMappingFile",          &cfgparams.ToneMappingFile,              1,   0.0,                       0,  0.0,              0.0,             FILE_NAME_SIZE, },
 
+#if GFV_ENABLE
+    // GFV SEI cfg file
+    {"GFVSEIPresentFlag",        &cfgparams.GFVSEIPresentFlag,            0,   0.0,                       1,  0.0,              1.0,                             },
+    {"GFVFile",                  &cfgparams.GFVFile,                      1,   0.0,                       0,  0.0,              0.0,             FILE_NAME_SIZE, },
+    
+    // GFVE SEI cfg file
+    {"GFVESEIPresentFlag",       &cfgparams.GFVESEIPresentFlag,           0,   0.0,                       1,  0.0,              1.0,                             },
+    {"GFVEFile",                 &cfgparams.GFVEFile,                     1,   0.0,                       0,  0.0,              0.0,             FILE_NAME_SIZE, },
+#endif
+
     {"SeparateColourPlane",      &cfgparams.separate_colour_plane_flag,   0,   0.0,                       1,  0.0,              1.0,                             },
     {"WeightY",                  &cfgparams.WeightY,                      2,   1.00,                      1,  0.0,              4.0,                             },
     {"WeightCb",                 &cfgparams.WeightCb,                     2,   1.00,                      1,  0.0,              4.0,                             },
