@@ -4602,7 +4602,7 @@ static void CloseGFV(SEIParameters *p_SEI)
   unsigned int matrixHeight = 0;
   unsigned int numMatrices = 0;
 
-  int i, j, k;
+  unsigned int i, j, k;
 #ifdef PRINT_GFV_INFO
   printf("CloseGFV, start\n");
 #endif
@@ -5369,7 +5369,7 @@ static void FinalizeGFV(SEIParameters *p_SEI, unsigned int gfv_idx)
               cur_matrix_element_abs = fabs(sei->gfv_matrix_element[matrixId][j][k][l]);
               cur_matrix_element_abs_int = (int)(cur_matrix_element_abs);
               // CHECK: The value of gfv_matrix_element_int[ i ][ j ][ k ][ m ] shall be in the range of 0 to 2^(32) - 2, inclusive
-              assert( cur_matrix_element_abs_int >= 0 && cur_matrix_element_abs_int <= (4294967296 - 2) );
+              assert( cur_matrix_element_abs_int >= 0 && (uint32_t)cur_matrix_element_abs_int <= (4294967296 - 2) );
               write_ue_v("SEI: gfv_matrix_element_int", cur_matrix_element_abs_int, bitstream);
 
               cur_matrix_element_abs_decimal = cur_matrix_element_abs - cur_matrix_element_abs_int;
@@ -5462,7 +5462,7 @@ static void FinalizeGFV(SEIParameters *p_SEI, unsigned int gfv_idx)
       {
         write_u_1("SEI: gfv_nn_alignment_zero_bit_b", 0, bitstream);
       }
-      for (long p = 0; p < sei->gfv_payload_length; p++)
+      for (unsigned long p = 0; p < sei->gfv_payload_length; p++)
       {
         write_u_v(8, "SEI: gfv_nn_payload_byte[i]", sei->gfv_payload_byte[p], bitstream);
       }
@@ -6277,7 +6277,7 @@ static void CloseGFVE(SEIParameters *p_SEI)
   unsigned int matrixHeight = 0;
   unsigned int numMatrices = 0;
 
-  int i, j;
+  unsigned int i, j;
 #ifdef PRINT_GFVE_INFO
   printf("CloseGFVE, start\n");
 #endif
@@ -6643,7 +6643,7 @@ static void FinalizeGFVE(SEIParameters *p_SEI, unsigned int gfve_idx)
             gfve_cur_matrix_element_abs = fabs(sei->gfve_matrix_element[matrixId][j][k]);
             gfve_cur_matrix_element_abs_int = (int)(gfve_cur_matrix_element_abs);
             // CHECK: The value of gfve_matrix_element_int shall be in the range of 0 to 2^(32) - 2, inclusive"
-            assert( gfve_cur_matrix_element_abs_int >= 0 && gfve_cur_matrix_element_abs_int <= (4294967296 - 2) );
+            assert( gfve_cur_matrix_element_abs_int >= 0 && (uint32_t)gfve_cur_matrix_element_abs_int <= (4294967296 - 2) );
             write_ue_v("SEI: gfve_matrix_element_int", gfve_cur_matrix_element_abs_int, bitstream);
 
             gfve_cur_matrix_element_abs_decimal = gfve_cur_matrix_element_abs - gfve_cur_matrix_element_abs_int;
@@ -6666,7 +6666,7 @@ static void FinalizeGFVE(SEIParameters *p_SEI, unsigned int gfve_idx)
             gfve_cur_matrix_element_abs = fabs(sei->gfve_matrix_element[matrixId][j][k] - (sei->gfve_gfv_cnt == 0 ? base_gfve_matrix_rec[matrixId][j][k] : prev_gfve_matrix_rec[matrixId][j][k]));
             gfve_cur_matrix_element_abs_int = (int)(gfve_cur_matrix_element_abs);
             // CHECK: The value of gfve_matrix_element_int shall be in the range of 0 to 2^(32) - 2, inclusive"
-            assert( gfve_cur_matrix_element_abs_int >= 0 && gfve_cur_matrix_element_abs_int <= (4294967296 - 2) );
+            assert( gfve_cur_matrix_element_abs_int >= 0 && (uint32_t)gfve_cur_matrix_element_abs_int <= (4294967296 - 2) );
             write_ue_v("SEI: gfve_matrix_delta_element_int", gfve_cur_matrix_element_abs_int, bitstream);
 
             gfve_cur_matrix_element_abs_decimal = gfve_cur_matrix_element_abs - gfve_cur_matrix_element_abs_int;
@@ -6841,7 +6841,7 @@ static void FinalizeGFVE(SEIParameters *p_SEI, unsigned int gfve_idx)
       {
         write_u_1("SEI: gfve_nn_alignment_zero_bit_b", 0, bitstream);
       }
-      for (long p = 0; p < sei->gfve_payload_length; p++)
+      for (unsigned long p = 0; p < sei->gfve_payload_length; p++)
       {
         write_u_v(8, "SEI: gfve_nn_payload_byte[i]", sei->gfve_payload_byte[p], bitstream);
       }

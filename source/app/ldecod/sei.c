@@ -3266,7 +3266,7 @@ void interpret_gfv_info( byte* payload, int size, VideoParameters *p_Vid )
             {
               cur_matrix_element_abs_int = read_ue_v("SEI: gfv_matrix_element_int", buf, &p_Dec->UsedBits);
               // CHECK: The value of gfv_matrix_element_int[ i ][ j ][ k ][ m ] shall be in the range of 0 to 2^(32) - 2, inclusive
-              assert( cur_matrix_element_abs_int >= 0 && cur_matrix_element_abs_int <= (4294967296 - 2) );
+              assert( cur_matrix_element_abs_int >= 0 && (uint32_t)cur_matrix_element_abs_int <= (4294967296 - 2) );
 
               cur_matrix_element_abs_dec_int_value = read_u_v(seiGFV.gfv_matrix_element_precision_factor, "SEI: gfv_matrix_element_dec", buf, &p_Dec->UsedBits);
               double cur_matrix_element_abs_decimal = ((double)cur_matrix_element_abs_dec_int_value) / (1 << seiGFV.gfv_matrix_element_precision_factor);
@@ -3743,7 +3743,7 @@ void interpret_gfve_info( byte* payload, int size, VideoParameters *p_Vid )
           {
             gfve_cur_matrix_element_abs_int = read_ue_v("SEI: gfve_matrix_element_int", buf, &p_Dec->UsedBits);
             // CHECK: The value of gfve_matrix_element_int[ j ][ k ][ m ] shall be in the range of 0 to 2^(32) - 2, inclusive
-            assert( gfve_cur_matrix_element_abs_int >= 0 && gfve_cur_matrix_element_abs_int <= (4294967296 - 2) );
+            assert( gfve_cur_matrix_element_abs_int >= 0 && (uint32_t)gfve_cur_matrix_element_abs_int <= (4294967296 - 2) );
 
             gfve_cur_matrix_element_abs_dec_int_value = read_u_v(seiGFVE.gfve_matrix_element_precision_factor, "SEI: gfve_matrix_element_dec", buf, &p_Dec->UsedBits);
             double gfve_cur_matrix_element_abs_decimal = ((double)gfve_cur_matrix_element_abs_dec_int_value) / (1 << seiGFVE.gfve_matrix_element_precision_factor);
@@ -3762,7 +3762,7 @@ void interpret_gfve_info( byte* payload, int size, VideoParameters *p_Vid )
           {
             gfve_cur_matrix_element_abs_int = read_ue_v("SEI: gfve_matrix_delta_element_int", buf, &p_Dec->UsedBits);
             // CHECK: The value of gfve_matrix_delta_element_int[ j ][ k ][ m ] shall be in the range of 0 to 2^(32) - 2, inclusive
-            assert( gfve_cur_matrix_element_abs_int >= 0 && gfve_cur_matrix_element_abs_int <= (4294967296 - 2) );
+            assert( gfve_cur_matrix_element_abs_int >= 0 && (uint32_t)gfve_cur_matrix_element_abs_int <= (4294967296 - 2) );
 
             gfve_cur_matrix_element_abs_dec_int_value = read_u_v(seiGFVE.gfve_matrix_element_precision_factor, "SEI: gfve_matrix_delta_element_dec", buf, &p_Dec->UsedBits);
             double gfve_cur_matrix_element_abs_decimal = ((double)gfve_cur_matrix_element_abs_dec_int_value) / (1 << seiGFVE.gfve_matrix_element_precision_factor);
@@ -3993,7 +3993,7 @@ double ReadGFVEPupilCoordinate(Bitstream **ptr_buf, double ref_coordinate, int p
 {
   Bitstream* buf = *ptr_buf;
 
-  unsigned int gfve_pupil_abs_int_value;
+  int gfve_pupil_abs_int_value;
   Boolean gfve_pupil_signflag;
   char gfve_pupil_check_message[256];
   char gfve_pupil_abs_symbol_name[256];
