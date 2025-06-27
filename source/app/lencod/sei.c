@@ -3017,12 +3017,6 @@ static void CloseDRPMRepetition(SEIParameters *p_SEI)
   }
 }
 
-
-
-
-
-
-
 /*!
  *****************************************************************************
  * \brief
