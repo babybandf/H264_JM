@@ -1,5 +1,5 @@
 # minimum required cmake version
-cmake_minimum_required( VERSION 3.5 FATAL_ERROR )
+cmake_minimum_required( VERSION 3.10 FATAL_ERROR )
 
 project( JM )
 
@@ -22,8 +22,9 @@ if( CMAKE_SYSTEM_NAME STREQUAL "Linux" )
   endif()
 endif()
 
-set( SET_ENABLE_TRACING OFF CACHE BOOL "Set ENABLE_TRACING as a compiler flag" )
-set( ENABLE_TRACING OFF CACHE BOOL "If SET_ENABLE_TRACING is on, it will be set to this value" )
+if (DEFINED ENABLE_TRACING)
+  set( ENABLE_TRACING OFF CACHE BOOL "ENABLE_TRACING will be set to this value" )
+endif()
 
 if( CMAKE_COMPILER_IS_GNUCC )
   set( BUILD_STATIC OFF CACHE BOOL "Build static executables" )
@@ -96,7 +97,7 @@ endif()
 bb_enable_warnings( msvc warnings-as-errors "/wd4996 /wd5105 /wd5103" )
 
 # enable sse4.1 build for all source files for gcc and clang
-if( UNIX OR MINGW )
+if( (UNIX OR MINGW) AND NOT (CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64") )
   add_compile_options( "-msse4.1" )
 endif()
 
