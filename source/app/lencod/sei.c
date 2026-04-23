@@ -310,11 +310,15 @@ Boolean HaveAggregationSEI(VideoParameters *p_Vid)
 #if GFV_ENABLE
 #if JVET_AJ0207_GFV_SEI
   if (p_SEI->seiHasGFV_info)
+  {
     return TRUE;
+  }
 #endif
 #if JVET_AK0239_GFVE_SEI
   if (p_SEI->seiHasGFVE_info)
+  {
     return TRUE;
+  }
 #endif
 #endif
 
@@ -3419,7 +3423,8 @@ static int ParseGFVConfigFile(SEIParameters *p_SEI, InputParameters *p_Inp, gene
       printf("ret = %u\n", ret);
 #endif
     }
-    else if (strcmp(buf, "gfv_nn_mode_idc") == 0) {
+    else if (strcmp(buf, "gfv_nn_mode_idc") == 0) 
+    {
       ret = fscanf(fp, " = %u\n", &tmp_int);
       for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
       {
@@ -3430,7 +3435,8 @@ static int ParseGFVConfigFile(SEIParameters *p_SEI, InputParameters *p_Inp, gene
       printf("ret = %u\n", ret);
 #endif
     }
-    else if (strcmp(buf, "gfv_nn_tag_uri") == 0) {
+    else if (strcmp(buf, "gfv_nn_tag_uri") == 0) 
+    {
       ret = fscanf(fp, " = %s\n", temp);
       for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
       {
@@ -3444,7 +3450,8 @@ static int ParseGFVConfigFile(SEIParameters *p_SEI, InputParameters *p_Inp, gene
 #endif
       memset(temp, 0, sizeof(temp));
     }
-    else if (strcmp(buf, "gfv_nn_uri") == 0) {
+    else if (strcmp(buf, "gfv_nn_uri") == 0) 
+    {
       ret = fscanf(fp, " = %s\n", temp);
       for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
       {
@@ -3772,19 +3779,13 @@ static int ParseGFVConfigFile(SEIParameters *p_SEI, InputParameters *p_Inp, gene
         if (pSeiGFV[gfv_idx].gfv_coordinate_present_flag && pSeiGFV[gfv_idx].gfv_coordinate_point_num > 0)
         {
           pSeiGFV[gfv_idx].gfv_coordinate_x = calloc((pSeiGFV[gfv_idx].gfv_coordinate_point_num), sizeof(double));
-          if (!pSeiGFV[gfv_idx].gfv_coordinate_x) {
-            no_mem_exit("ParseGFVConfigFile: alloc gfv_coordinate_x");
-          }
+          if (!pSeiGFV[gfv_idx].gfv_coordinate_x) no_mem_exit("ParseGFVConfigFile: alloc gfv_coordinate_x");
           pSeiGFV[gfv_idx].gfv_coordinate_y = calloc((pSeiGFV[gfv_idx].gfv_coordinate_point_num), sizeof(double));
-          if (!pSeiGFV[gfv_idx].gfv_coordinate_y) {
-            no_mem_exit("ParseGFVConfigFile: alloc gfv_coordinate_y");
-          }
+          if (!pSeiGFV[gfv_idx].gfv_coordinate_y) no_mem_exit("ParseGFVConfigFile: alloc gfv_coordinate_y");
           if (pSeiGFV[gfv_idx].gfv_3d_coordinate_flag && !pSeiGFV[gfv_idx].gfv_coordinate_z)
           {
             pSeiGFV[gfv_idx].gfv_coordinate_z = calloc((pSeiGFV[gfv_idx].gfv_coordinate_point_num), sizeof(double));
-            if (!pSeiGFV[gfv_idx].gfv_coordinate_z) {
-              no_mem_exit("ParseGFVConfigFile: alloc gfv_coordinate_z");
-            }
+            if (!pSeiGFV[gfv_idx].gfv_coordinate_z) no_mem_exit("ParseGFVConfigFile: alloc gfv_coordinate_z");
           }
         }
 #ifdef PRINT_GFV_INFO
@@ -3815,9 +3816,7 @@ static int ParseGFVConfigFile(SEIParameters *p_SEI, InputParameters *p_Inp, gene
         if (pSeiGFV[gfv_idx].gfv_coordinate_present_flag && pSeiGFV[gfv_idx].gfv_coordinate_point_num > 0 && pSeiGFV[gfv_idx].gfv_3d_coordinate_flag && !pSeiGFV[gfv_idx].gfv_coordinate_z)
         {
           pSeiGFV[gfv_idx].gfv_coordinate_z = calloc((pSeiGFV[gfv_idx].gfv_coordinate_point_num), sizeof(double));
-          if (!pSeiGFV[gfv_idx].gfv_coordinate_z) {
-            no_mem_exit("ParseGFVConfigFile: alloc gfv_coordinate_z");
-          }
+          if (!pSeiGFV[gfv_idx].gfv_coordinate_z) no_mem_exit("ParseGFVConfigFile: alloc gfv_coordinate_z");
         }
 #ifdef PRINT_GFV_INFO
         printf("%u ", pSeiGFV[gfv_idx].gfv_3d_coordinate_flag);
@@ -4040,49 +4039,27 @@ static int ParseGFVConfigFile(SEIParameters *p_SEI, InputParameters *p_Inp, gene
         if (pSeiGFV[gfv_idx].gfv_matrix_present_flag && pSeiGFV[gfv_idx].gfv_num_matrix_type > 0)
         {
           pSeiGFV[gfv_idx].gfv_matrix_type_idx = calloc((pSeiGFV[gfv_idx].gfv_num_matrix_type), sizeof(unsigned int));
-          if (!pSeiGFV[gfv_idx].gfv_matrix_type_idx) {
-            no_mem_exit("ParseGFVConfigFile: alloc gfv_matrix_type_idx");
-          }
+          if (!pSeiGFV[gfv_idx].gfv_matrix_type_idx) no_mem_exit("ParseGFVConfigFile: alloc gfv_matrix_type_idx");
           pSeiGFV[gfv_idx].gfv_num_matrices_to_num_kps_flag = calloc((pSeiGFV[gfv_idx].gfv_num_matrix_type), sizeof(unsigned int));
-          if (!pSeiGFV[gfv_idx].gfv_num_matrices_to_num_kps_flag) {
-            no_mem_exit("ParseGFVConfigFile: alloc gfv_num_matrices_to_num_kps_flag");
-          }
+          if (!pSeiGFV[gfv_idx].gfv_num_matrices_to_num_kps_flag) no_mem_exit("ParseGFVConfigFile: alloc gfv_num_matrices_to_num_kps_flag");
           pSeiGFV[gfv_idx].gfv_num_matrices_info = calloc((pSeiGFV[gfv_idx].gfv_num_matrix_type), sizeof(unsigned int));
-          if (!pSeiGFV[gfv_idx].gfv_num_matrices_info) {
-            no_mem_exit("ParseGFVConfigFile: alloc gfv_num_matrices_info");
-          }
+          if (!pSeiGFV[gfv_idx].gfv_num_matrices_info) no_mem_exit("ParseGFVConfigFile: alloc gfv_num_matrices_info");
           pSeiGFV[gfv_idx].gfv_matrix_3D_space_flag = calloc((pSeiGFV[gfv_idx].gfv_num_matrix_type), sizeof(unsigned int));
-          if (!pSeiGFV[gfv_idx].gfv_matrix_3D_space_flag) {
-            no_mem_exit("ParseGFVConfigFile: alloc gfv_matrix_3D_space_flag");
-          }
+          if (!pSeiGFV[gfv_idx].gfv_matrix_3D_space_flag) no_mem_exit("ParseGFVConfigFile: alloc gfv_matrix_3D_space_flag");
           pSeiGFV[gfv_idx].gfv_num_matrices = calloc((pSeiGFV[gfv_idx].gfv_num_matrix_type), sizeof(unsigned int));
-          if (!pSeiGFV[gfv_idx].gfv_num_matrices) {
-            no_mem_exit("ParseGFVConfigFile: alloc gfv_num_matrices");
-          }
+          if (!pSeiGFV[gfv_idx].gfv_num_matrices) no_mem_exit("ParseGFVConfigFile: alloc gfv_num_matrices");
           pSeiGFV[gfv_idx].gfv_matrix_width = calloc((pSeiGFV[gfv_idx].gfv_num_matrix_type), sizeof(unsigned int));
-          if (!pSeiGFV[gfv_idx].gfv_matrix_width) {
-            no_mem_exit("ParseGFVConfigFile: alloc gfv_matrix_width");
-          }
+          if (!pSeiGFV[gfv_idx].gfv_matrix_width) no_mem_exit("ParseGFVConfigFile: alloc gfv_matrix_width");
           pSeiGFV[gfv_idx].gfv_matrix_height = calloc((pSeiGFV[gfv_idx].gfv_num_matrix_type), sizeof(unsigned int));
-          if (!pSeiGFV[gfv_idx].gfv_matrix_height) {
-            no_mem_exit("ParseGFVConfigFile: alloc gfv_matrix_height");
-          }
+          if (!pSeiGFV[gfv_idx].gfv_matrix_height) no_mem_exit("ParseGFVConfigFile: alloc gfv_matrix_height");
           pSeiGFV[gfv_idx].gfv_num_matrices_store = calloc((pSeiGFV[gfv_idx].gfv_num_matrix_type), sizeof(unsigned int));
-          if (!pSeiGFV[gfv_idx].gfv_num_matrices_store) {
-            no_mem_exit("ParseGFVConfigFile: alloc gfv_num_matrices_store");
-          }
+          if (!pSeiGFV[gfv_idx].gfv_num_matrices_store) no_mem_exit("ParseGFVConfigFile: alloc gfv_num_matrices_store");
           pSeiGFV[gfv_idx].gfv_matrix_width_store = calloc((pSeiGFV[gfv_idx].gfv_num_matrix_type), sizeof(unsigned int));
-          if (!pSeiGFV[gfv_idx].gfv_matrix_width_store) {
-            no_mem_exit("ParseGFVConfigFile: alloc gfv_matrix_width_store");
-          }
+          if (!pSeiGFV[gfv_idx].gfv_matrix_width_store) no_mem_exit("ParseGFVConfigFile: alloc gfv_matrix_width_store");
           pSeiGFV[gfv_idx].gfv_matrix_height_store = calloc((pSeiGFV[gfv_idx].gfv_num_matrix_type), sizeof(unsigned int));
-          if (!pSeiGFV[gfv_idx].gfv_matrix_height_store) {
-            no_mem_exit("ParseGFVConfigFile: alloc gfv_matrix_height_store");
-          }
+          if (!pSeiGFV[gfv_idx].gfv_matrix_height_store) no_mem_exit("ParseGFVConfigFile: alloc gfv_matrix_height_store");
           pSeiGFV[gfv_idx].gfv_matrix_element = (double****) calloc((pSeiGFV[gfv_idx].gfv_num_matrix_type), sizeof(double***));
-          if (!pSeiGFV[gfv_idx].gfv_matrix_element) {
-            no_mem_exit("ParseGFVConfigFile: alloc gfv_matrix_element");
-          }
+          if (!pSeiGFV[gfv_idx].gfv_matrix_element) no_mem_exit("ParseGFVConfigFile: alloc gfv_matrix_element");
         }
       }
 #ifdef PRINT_GFV_INFO
@@ -4390,28 +4367,22 @@ static int ParseGFVConfigFile(SEIParameters *p_SEI, InputParameters *p_Inp, gene
 
             // malloc for numMatrices
             pSeiGFV[gfv_idx].gfv_matrix_element[i] = (double***) calloc((numMatrices), sizeof(double**));
-            if (!pSeiGFV[gfv_idx].gfv_matrix_element[i]) {
-              no_mem_exit("ParseGFVConfigFile: alloc gfv_matrix_element, numMatrices");
-            }
+            if (!pSeiGFV[gfv_idx].gfv_matrix_element[i]) no_mem_exit("ParseGFVConfigFile: alloc gfv_matrix_element, numMatrices");
 
             // over each matrix
             for (j = 0; j < numMatrices; j++)
             {
               // malloc for matrixHeight
               pSeiGFV[gfv_idx].gfv_matrix_element[i][j] = (double**) calloc((matrixHeight), sizeof(double*));
-              if (!pSeiGFV[gfv_idx].gfv_matrix_element[i][j]) {
-                no_mem_exit("ParseGFVConfigFile: alloc gfv_matrix_element, matrixHeight");
-              }
-
+              if (!pSeiGFV[gfv_idx].gfv_matrix_element[i][j]) no_mem_exit("ParseGFVConfigFile: alloc gfv_matrix_element, matrixHeight");
+              
               // over matrixHeight
               for (k = 0; k < matrixHeight; k++)
               {
                 // malloc for matrixWidth
                 pSeiGFV[gfv_idx].gfv_matrix_element[i][j][k] = (double*) calloc((matrixWidth), sizeof(double));
-                if (!pSeiGFV[gfv_idx].gfv_matrix_element[i][j][k]) {
-                  no_mem_exit("ParseGFVConfigFile: alloc gfv_matrix_element, matrixWidth");
-                }
-
+                if (!pSeiGFV[gfv_idx].gfv_matrix_element[i][j][k]) no_mem_exit("ParseGFVConfigFile: alloc gfv_matrix_element, matrixWidth");
+                
                 // over matrixWidth
                 for (l = 0; l < matrixWidth; l++)
                 {
@@ -4451,13 +4422,15 @@ static int ParseGFVConfigFile(SEIParameters *p_SEI, InputParameters *p_Inp, gene
               return 1;
             }
   
-            if (fseek(file, 0, SEEK_END) != 0) {
+            if (fseek(file, 0, SEEK_END) != 0) 
+            {
               fclose(file);
               return -1;
             }
   
             long payload_size = ftell(file);
-            if (payload_size == -1) {
+            if (payload_size == -1) 
+            {
               fclose(file);
               return -1;
             }
@@ -4466,12 +4439,11 @@ static int ParseGFVConfigFile(SEIParameters *p_SEI, InputParameters *p_Inp, gene
             pSeiGFV[gfv_idx].gfv_payload_length = payload_size;
   
             pSeiGFV[gfv_idx].gfv_payload_byte = malloc(payload_size);
-            if (!pSeiGFV[gfv_idx].gfv_payload_byte) {
-              no_mem_exit("ParseGFVConfigFile: alloc gfv_payload_byte");
-            }
+            if (!pSeiGFV[gfv_idx].gfv_payload_byte) no_mem_exit("ParseGFVConfigFile: alloc gfv_payload_byte");
 
             size_t bytes_read = fread(pSeiGFV[gfv_idx].gfv_payload_byte, 1, payload_size, file);
-            if (bytes_read != (size_t)payload_size) {
+            if (bytes_read != (size_t)payload_size) 
+            {
                 free(pSeiGFV[gfv_idx].gfv_payload_byte);
                 pSeiGFV[gfv_idx].gfv_payload_byte = NULL;
                 fclose(file);
@@ -5067,7 +5039,8 @@ static void FinalizeGFV(SEIParameters *p_SEI, unsigned int gfv_idx)
       {
         prev_coordinate_x_rec[i] = coordinate_x_rec[i];
         prev_coordinate_y_rec[i] = coordinate_y_rec[i];
-        if (sei->gfv_3d_coordinate_flag == 1) {
+        if (sei->gfv_3d_coordinate_flag == 1) 
+        {
           prev_coordinate_z_rec[i] = coordinate_z_rec[i];
         }
       }
@@ -5077,7 +5050,8 @@ static void FinalizeGFV(SEIParameters *p_SEI, unsigned int gfv_idx)
         {
           base_coordinate_x_rec[i] = coordinate_x_rec[i];
           base_coordinate_y_rec[i] = coordinate_y_rec[i];
-          if (sei->gfv_3d_coordinate_flag == 1) {
+          if (sei->gfv_3d_coordinate_flag == 1) 
+          {
             base_coordinate_z_rec[i] = coordinate_z_rec[i];
           }
         }
@@ -5225,11 +5199,12 @@ static void FinalizeGFV(SEIParameters *p_SEI, unsigned int gfv_idx)
 
     if (basePicFlag)
     {
-      for (matrixId = 0; matrixId < sei->gfv_num_matrix_type; matrixId++) {
+      for (matrixId = 0; matrixId < sei->gfv_num_matrix_type; matrixId++) 
+      {
           base_num_matrices_vec[matrixId] = num_matrices_vec[matrixId];
           base_matrix_height_vec[matrixId] = matrix_height_vec[matrixId];
           base_matrix_width_vec[matrixId] = matrix_width_vec[matrixId];
-        }
+      }
     }
 
 #ifdef PRINT_GFV_INFO
@@ -5476,7 +5451,9 @@ static void FinalizeGFV(SEIParameters *p_SEI, unsigned int gfv_idx)
     bitstream->byte_buf |= 1;
     bitstream->bits_to_go--;
     if ( bitstream->bits_to_go != 0 ) 
+    {
       (bitstream->byte_buf) <<= (bitstream->bits_to_go);
+    }
     bitstream->bits_to_go = 8;
     bitstream->streamBuffer[bitstream->byte_pos++]=bitstream->byte_buf;
     bitstream->byte_buf = 0;
@@ -5628,7 +5605,8 @@ static int ParseGFVEConfigFile(SEIParameters *p_SEI, InputParameters *p_Inp, gen
       printf("ret = %u\n", ret);
 #endif
     }
-    else if (strcmp(buf, "gfve_nn_mode_idc") == 0) {
+    else if (strcmp(buf, "gfve_nn_mode_idc") == 0) 
+    {
       ret = fscanf(fp, " = %u\n", &tmp_int);
       for (gfve_idx = 0; gfve_idx < p_SEI->gfve_num_sei; gfve_idx++)
       {
@@ -5639,7 +5617,8 @@ static int ParseGFVEConfigFile(SEIParameters *p_SEI, InputParameters *p_Inp, gen
       printf("ret = %u\n", ret);
 #endif
     }
-    else if (strcmp(buf, "gfve_nn_tag_uri") == 0) {
+    else if (strcmp(buf, "gfve_nn_tag_uri") == 0) 
+    {
       ret = fscanf(fp, " = %s\n", temp);
       for (gfve_idx = 0; gfve_idx < p_SEI->gfve_num_sei; gfve_idx++)
       {
@@ -5653,7 +5632,8 @@ static int ParseGFVEConfigFile(SEIParameters *p_SEI, InputParameters *p_Inp, gen
 #endif
       memset(temp, 0, sizeof(temp));
     }
-    else if (strcmp(buf, "gfve_nn_uri") == 0) {
+    else if (strcmp(buf, "gfve_nn_uri") == 0) 
+    {
       ret = fscanf(fp, " = %s\n", temp);
       for (gfve_idx = 0; gfve_idx < p_SEI->gfve_num_sei; gfve_idx++)
       {
@@ -5686,13 +5666,15 @@ static int ParseGFVEConfigFile(SEIParameters *p_SEI, InputParameters *p_Inp, gen
               return 1;
             }
   
-            if (fseek(file, 0, SEEK_END) != 0) {
+            if (fseek(file, 0, SEEK_END) != 0) 
+            {
               fclose(file);
               return -1;
             }
   
             long payload_size = ftell(file);
-            if (payload_size == -1) {
+            if (payload_size == -1) 
+            {
               fclose(file);
               return -1;
             }
@@ -5701,12 +5683,11 @@ static int ParseGFVEConfigFile(SEIParameters *p_SEI, InputParameters *p_Inp, gen
             pSeiGFVE[gfve_idx].gfve_payload_length = payload_size;
   
             pSeiGFVE[gfve_idx].gfve_payload_byte = malloc(payload_size);
-            if (!pSeiGFVE[gfve_idx].gfve_payload_byte) {
-              no_mem_exit("ParseGFVEConfigFile: alloc gfve_payload_byte");
-            }
+            if (!pSeiGFVE[gfve_idx].gfve_payload_byte) no_mem_exit("ParseGFVEConfigFile: alloc gfve_payload_byte");
 
             size_t bytes_read = fread(pSeiGFVE[gfve_idx].gfve_payload_byte, 1, payload_size, file);
-            if (bytes_read != (size_t)payload_size) {
+            if (bytes_read != (size_t)payload_size) 
+            {
                 free(pSeiGFVE[gfve_idx].gfve_payload_byte);
                 pSeiGFVE[gfve_idx].gfve_payload_byte = NULL;
                 fclose(file);
@@ -5887,17 +5868,11 @@ static int ParseGFVEConfigFile(SEIParameters *p_SEI, InputParameters *p_Inp, gen
         if (pSeiGFVE[gfve_idx].gfve_matrix_present_flag && pSeiGFVE[gfve_idx].gfve_num_matrices > 0)
         {
           pSeiGFVE[gfve_idx].gfve_matrix_width = calloc((pSeiGFVE[gfve_idx].gfve_num_matrices), sizeof(unsigned int));
-          if (!pSeiGFVE[gfve_idx].gfve_matrix_width) {
-            no_mem_exit("ParseGFVEConfigFile: alloc gfve_matrix_width");
-          }
+          if (!pSeiGFVE[gfve_idx].gfve_matrix_width) no_mem_exit("ParseGFVEConfigFile: alloc gfve_matrix_width");
           pSeiGFVE[gfve_idx].gfve_matrix_height = calloc((pSeiGFVE[gfve_idx].gfve_num_matrices), sizeof(unsigned int));
-          if (!pSeiGFVE[gfve_idx].gfve_matrix_height) {
-            no_mem_exit("ParseGFVEConfigFile: alloc gfve_matrix_height");
-          }
+          if (!pSeiGFVE[gfve_idx].gfve_matrix_height) no_mem_exit("ParseGFVEConfigFile: alloc gfve_matrix_height");
           pSeiGFVE[gfve_idx].gfve_matrix_element = (double***) calloc((pSeiGFVE[gfve_idx].gfve_num_matrices), sizeof(double**));
-          if (!pSeiGFVE[gfve_idx].gfve_matrix_element) {
-            no_mem_exit("ParseGFVEConfigFile: alloc gfve_matrix_element");
-          }
+          if (!pSeiGFVE[gfve_idx].gfve_matrix_element) no_mem_exit("ParseGFVEConfigFile: alloc gfve_matrix_element");
         }
       }
 #ifdef PRINT_GFVE_INFO
@@ -5992,18 +5967,14 @@ static int ParseGFVEConfigFile(SEIParameters *p_SEI, InputParameters *p_Inp, gen
             
             // malloc for matrixHeight
             pSeiGFVE[gfve_idx].gfve_matrix_element[i] = (double**) calloc((matrixHeight), sizeof(double*));
-            if (!pSeiGFVE[gfve_idx].gfve_matrix_element[i]) {
-              no_mem_exit("ParseGFVEConfigFile: alloc gfve_matrix_element, matrixHeight");
-            }
+            if (!pSeiGFVE[gfve_idx].gfve_matrix_element[i]) no_mem_exit("ParseGFVEConfigFile: alloc gfve_matrix_element, matrixHeight");
 
             // over matrixHeight
             for (j = 0; j < matrixHeight; j++)
             {
               // malloc for matrixWidth
               pSeiGFVE[gfve_idx].gfve_matrix_element[i][j] = (double*) calloc((matrixWidth), sizeof(double));
-              if (!pSeiGFVE[gfve_idx].gfve_matrix_element[i][j]) {
-                no_mem_exit("ParseGFVEConfigFile: alloc gfve_matrix_element, matrixWidth");
-              }
+              if (!pSeiGFVE[gfve_idx].gfve_matrix_element[i][j]) no_mem_exit("ParseGFVEConfigFile: alloc gfve_matrix_element, matrixWidth");
 
               // over matrixWidth
               for (k = 0; k < matrixWidth; k++)
@@ -6522,10 +6493,11 @@ static void FinalizeGFVE(SEIParameters *p_SEI, unsigned int gfve_idx)
 
     if (gfve_basePicFlag)
     {
-      for (matrixId = 0; matrixId < gfve_num_matrices; matrixId++) {
+      for (matrixId = 0; matrixId < gfve_num_matrices; matrixId++) 
+      {
           base_gfve_matrix_height_vec[matrixId] = sei->gfve_matrix_height[matrixId];
           base_gfve_matrix_width_vec[matrixId] = sei->gfve_matrix_width[matrixId];
-        }
+      }
     }
     
     if (sei->gfve_matrix_pred_flag)
@@ -6711,7 +6683,8 @@ static void FinalizeGFVE(SEIParameters *p_SEI, unsigned int gfve_idx)
       }
       if (gfve_basePicFlag)
       {
-        for (matrixId = 0; matrixId < gfve_num_matrices; matrixId++) {
+        for (matrixId = 0; matrixId < gfve_num_matrices; matrixId++) 
+        {
           base_gfve_matrix_height_vec[matrixId] = gfve_matrix_height_vec[matrixId];
           base_gfve_matrix_width_vec[matrixId] = gfve_matrix_width_vec[matrixId];
         }
@@ -6912,7 +6885,8 @@ double WriteGFVEPupilCoordinate(SEIParameters *p_SEI, unsigned int gfve_idx, dou
   assert( strcmp(axis, "x") == 0 || strcmp(axis, "y") == 0 );
 
   snprintf(gfve_pupil_check_message, sizeof(gfve_pupil_check_message), "The value of gfve_pupil_%s_eye_d%s_coordinate_abs shall be in the range of 0 to 1 << (gfve_pupil_coordinate_precision_factor_minus1 + 2), inclusive", eye, axis);
-  if (gfve_pupil_abs_int_value < 0 || gfve_pupil_abs_int_value > (1 << (precision_factor + 1))) {
+  if (gfve_pupil_abs_int_value < 0 || gfve_pupil_abs_int_value > (1 << (precision_factor + 1))) 
+  {
     error(gfve_pupil_check_message, 500);
   }
 

@@ -2507,10 +2507,12 @@ void interpret_gfv_info( byte* payload, int size, VideoParameters *p_Vid )
 
   seiGFV.gfv_cnt = read_ue_v("SEI: gfv_cnt", buf, &p_Dec->UsedBits);
 
-  if (seiGFV.gfv_cnt == 0) {
+  if (seiGFV.gfv_cnt == 0) 
+  {
     seiGFV.gfv_base_pic_flag = read_u_1("SEI: gfv_base_picture_flag", buf, &p_Dec->UsedBits);
   }
-  else {
+  else 
+  {
     seiGFV.gfv_base_pic_flag = FALSE;
   }
 
@@ -3495,10 +3497,12 @@ void interpret_gfve_info( byte* payload, int size, VideoParameters *p_Vid )
   seiGFVE.gfve_gfv_cnt = read_ue_v("SEI: gfve_gfv_cnt", buf, &p_Dec->UsedBits);
   gfve_gfv_cnt = seiGFVE.gfve_gfv_cnt;
 
-  if (seiGFVE.gfve_gfv_cnt == 0) {
+  if (seiGFVE.gfve_gfv_cnt == 0) 
+  {
     seiGFVE.gfve_base_pic_flag = read_u_1("SEI: gfve_base_picture_flag", buf, &p_Dec->UsedBits);
   }
-  else {
+  else 
+  {
     seiGFVE.gfve_base_pic_flag = FALSE;
   }
 
@@ -4008,7 +4012,8 @@ double ReadGFVEPupilCoordinate(Bitstream **ptr_buf, double ref_coordinate, int p
   snprintf(gfve_pupil_abs_symbol_name, sizeof(gfve_pupil_abs_symbol_name), "SEI: gfve_pupil_%s_eye_d%s_coordinate_abs", eye, axis);
 
   gfve_pupil_abs_int_value = read_ue_v(gfve_pupil_abs_symbol_name, buf, &p_Dec->UsedBits);
-  if (gfve_pupil_abs_int_value < 0 || gfve_pupil_abs_int_value > (1 << (precision_factor + 1))) {
+  if (gfve_pupil_abs_int_value < 0 || gfve_pupil_abs_int_value > (1 << (precision_factor + 1))) 
+  {
     error(gfve_pupil_check_message, 500);
   }
 
