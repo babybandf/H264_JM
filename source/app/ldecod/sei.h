@@ -156,6 +156,8 @@ typedef struct
    int max_wavelength_exponent_plus15; 
    int modality_type_extension_bits; 
  } modality_information_struct;
+#endif 
+
 #if GFV_ENABLE
 #if JVET_AJ0207_GFV_SEI
 //! Generative Face Video

@@ -352,6 +352,8 @@ typedef struct
   Bitstream *data;
   int payloadSize;
 } modality_information_struct;
+#endif 
+
 #if GFV_ENABLE
 #define MAX_NUM_GFV_CNT 65536 
 

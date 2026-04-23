@@ -154,7 +154,7 @@ void init_sei(SEIParameters *p_SEI)
   p_SEI->seiHasPanScanRectInfo = FALSE;
 #if JVET_AK0107_MODALITY_INFORMATION
   p_SEI->seiHasModalityInfo = FALSE;
-
+#endif 
 #if GFV_ENABLE
 #if JVET_AJ0207_GFV_SEI
   p_SEI->seiHasGFV_info = FALSE;
@@ -216,7 +216,7 @@ void InitSEIMessages(VideoParameters *p_Vid, InputParameters *p_Inp)
 #if JVET_AK0107_MODALITY_INFORMATION
   // init Modality Information
   InitModalityInfo(p_SEI);
-
+#endif
 #if GFV_ENABLE
 #if JVET_AJ0207_GFV_SEI
   // init GFV Info
