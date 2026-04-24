@@ -3441,7 +3441,7 @@ static int ParseGFVConfigFile(SEIParameters *p_SEI, InputParameters *p_Inp, gene
       for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
       {
         // prevent buffer overflow
-        strncpy(pSeiGFV[gfv_idx].gfv_nn_tag_uri, temp, sizeof(pSeiGFV[gfv_idx].gfv_nn_tag_uri) - 1);
+        snprintf(pSeiGFV[gfv_idx].gfv_nn_tag_uri, sizeof(pSeiGFV[gfv_idx].gfv_nn_tag_uri), "%s", temp);
         pSeiGFV[gfv_idx].gfv_nn_tag_uri[sizeof(pSeiGFV[gfv_idx].gfv_nn_tag_uri) - 1] = '\0';
       }
 #ifdef PRINT_GFV_INFO
@@ -3456,7 +3456,7 @@ static int ParseGFVConfigFile(SEIParameters *p_SEI, InputParameters *p_Inp, gene
       for (gfv_idx = 0; gfv_idx < p_SEI->gfv_num_sei; gfv_idx++)
       {
         // prevent buffer overflow
-        strncpy(pSeiGFV[gfv_idx].gfv_nn_uri, temp, sizeof(pSeiGFV[gfv_idx].gfv_nn_uri) - 1);
+        snprintf(pSeiGFV[gfv_idx].gfv_nn_uri, sizeof(pSeiGFV[gfv_idx].gfv_nn_uri), "%s", temp);
         pSeiGFV[gfv_idx].gfv_nn_uri[sizeof(pSeiGFV[gfv_idx].gfv_nn_uri) - 1] = '\0';
       }
 #ifdef PRINT_GFV_INFO
@@ -5623,7 +5623,7 @@ static int ParseGFVEConfigFile(SEIParameters *p_SEI, InputParameters *p_Inp, gen
       for (gfve_idx = 0; gfve_idx < p_SEI->gfve_num_sei; gfve_idx++)
       {
         // prevent buffer overflow
-        strncpy(pSeiGFVE[gfve_idx].gfve_nn_tag_uri, temp, sizeof(pSeiGFVE[gfve_idx].gfve_nn_tag_uri) - 1);
+        snprintf(pSeiGFVE[gfve_idx].gfve_nn_tag_uri, sizeof(pSeiGFVE[gfve_idx].gfve_nn_tag_uri), "%s", temp);
         pSeiGFVE[gfve_idx].gfve_nn_tag_uri[sizeof(pSeiGFVE[gfve_idx].gfve_nn_tag_uri) - 1] = '\0';
       }
 #ifdef PRINT_GFVE_INFO
@@ -5638,7 +5638,7 @@ static int ParseGFVEConfigFile(SEIParameters *p_SEI, InputParameters *p_Inp, gen
       for (gfve_idx = 0; gfve_idx < p_SEI->gfve_num_sei; gfve_idx++)
       {
         // prevent buffer overflow
-        strncpy(pSeiGFVE[gfve_idx].gfve_nn_uri, temp, sizeof(pSeiGFVE[gfve_idx].gfve_nn_uri) - 1);
+        snprintf(pSeiGFVE[gfve_idx].gfve_nn_uri, sizeof(pSeiGFVE[gfve_idx].gfve_nn_uri), "%s", temp);
         pSeiGFVE[gfve_idx].gfve_nn_uri[sizeof(pSeiGFVE[gfve_idx].gfve_nn_uri) - 1] = '\0';
       }
 #ifdef PRINT_GFVE_INFO
@@ -6316,7 +6316,7 @@ static void FinalizeGFVE(SEIParameters *p_SEI, unsigned int gfve_idx)
   unsigned int matrixId, j, k;
 
   unsigned int gfve_matrix_element_precision_factor_minus1, gfve_matrix_element_precision_factor;
-  unsigned int gfve_num_matrices_minus1, gfve_num_matrices;
+  unsigned int gfve_num_matrices_minus1, gfve_num_matrices = 0;
   unsigned int gfve_matrix_width_minus1;
   unsigned int gfve_matrix_height_minus1;
 
