@@ -68,6 +68,9 @@
 #define MCBUF_CHROMA_PAD_Y      8
 #define MAX_NUM_DPB_LAYERS      2
 
+
+#define GFV_ENABLE              1     //!< JVET-AJ0207 GFV and JVET-AK0239 GFVE SEI message
+
 //AVC Profile IDC definitions
 typedef enum {
   NO_PROFILE     =  0,       //!< disable profile checking for experimental coding (enables FRExt, but disables MV)

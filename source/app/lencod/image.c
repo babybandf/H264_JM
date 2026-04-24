@@ -3185,6 +3185,24 @@ void write_non_vcl_nalu( VideoParameters *p_Vid )
     UpdateToneMapping(p_Vid->p_SEI);
   }
 
+#if GFV_ENABLE
+#if JVET_AJ0207_GFV_SEI
+  // write GFV SEI message
+  if (p_Inp->GFVSEIPresentFlag)
+  {
+    UpdateGFV(p_Vid->p_SEI, p_Inp);
+  }
+#endif
+
+#if JVET_AK0239_GFVE_SEI
+  // write GFVE SEI message
+  if (p_Inp->GFVESEIPresentFlag)
+  {
+    UpdateGFVE(p_Vid->p_SEI, p_Inp);
+  }
+#endif
+#endif
+
   // pic timing
   ClearPicTiming(p_Vid->p_SEI);
   if ( p_Inp->SEIVUI32Pulldown )
@@ -3257,6 +3275,24 @@ void write_non_vcl_nalu_bot_fld( VideoParameters *p_Vid )
   {
     UpdateToneMapping(p_Vid->p_SEI);
   }
+
+#if GFV_ENABLE
+#if JVET_AJ0207_GFV_SEI
+  // write GFV SEI message
+  if (p_Inp->GFVSEIPresentFlag)
+  {
+    UpdateGFV(p_Vid->p_SEI, p_Inp);
+  }
+#endif
+
+#if JVET_AK0239_GFVE_SEI
+  // write GFVE SEI message
+  if (p_Inp->GFVESEIPresentFlag)
+  {
+    UpdateGFVE(p_Vid->p_SEI, p_Inp);
+  }
+#endif
+#endif
 
   PrepareAggregationSEIMessage(p_Vid);
   

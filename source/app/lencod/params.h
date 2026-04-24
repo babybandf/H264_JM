@@ -402,6 +402,16 @@ struct inp_par_enc
   int ToneMappingSEIPresentFlag;
   char ToneMappingFile[FILE_NAME_SIZE];    //!< ToneMapping SEI message cfg file
 
+#if GFV_ENABLE
+  // GFV SEI message
+  int GFVSEIPresentFlag;
+  char GFVFile[FILE_NAME_SIZE];    //!< GFV SEI message cfg file
+  
+  // GFVE SEI message
+  int GFVESEIPresentFlag;
+  char GFVEFile[FILE_NAME_SIZE];    //!< GFVE SEI message cfg file
+#endif
+
   // prediction structure
   int PreferDispOrder;       //!< Prefer display order when building the prediction structure as opposed to coding order
   int PreferPowerOfTwo;      //!< Prefer prediction structures that have lengths expressed as powers of two
