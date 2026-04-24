@@ -34,6 +34,7 @@
 #define AGGREGATION_SEI 1
 #define JVET_AK0107_MODALITY_INFORMATION 1
 
+#define JVET_AK2006_SPTI_SEI_MESSAGE 1
 
 //! definition of SEI payload type
 typedef enum {
@@ -85,6 +86,9 @@ typedef enum {
   SEI_FRAME_PACKING_ARRANGEMENT,
 #if JVET_AK0107_MODALITY_INFORMATION
   SEI_MODALITY_INFO = 218,
+#endif
+#if JVET_AK2006_SPTI_SEI_MESSAGE
+  SEI_SOURCE_PICTURE_TIMING_INFO,
 #endif
 
   SEI_MAX_ELEMENTS  //!< number of maximum syntax elements
@@ -341,6 +345,28 @@ typedef struct
 } modality_information_struct;
 #endif
 
+#if JVET_AK2006_SPTI_SEI_MESSAGE
+//! Source Picture Timing Information
+typedef struct 
+{
+  Boolean spti_sei_present_flag;
+  Boolean spti_source_timing_equals_output_timing_flag;
+  unsigned int spti_source_type;
+  unsigned int spti_time_scale;
+  unsigned int spti_num_units_in_elemental_interval;
+  Boolean spti_direction_flag;
+  Boolean spti_cancel_flag;
+  Boolean spti_persistence_flag;
+  Boolean spti_source_type_present_flag;
+  unsigned int spti_max_sublayers_minus1;
+  unsigned int *spti_sublayer_interval_scale_factor;
+  Boolean *spti_sublayer_synthesized_picture_flag;
+
+  Bitstream *data;
+  int payloadSize;
+} source_picture_timing_info_struct;
+#endif
+
 // Globals
 struct sei_params {
   Boolean seiHasDRPMRepetition_info;
@@ -382,6 +408,11 @@ struct sei_params {
 #if JVET_AK0107_MODALITY_INFORMATION
   Boolean seiHasModalityInfo; 
   modality_information_struct seiModalityInfo;
+#endif
+
+#if JVET_AK2006_SPTI_SEI_MESSAGE
+  Boolean seiHasSourcePictureTiming_info;
+  source_picture_timing_info_struct seiSourcePictureTiming;
 #endif
 
   Boolean seiHasTemporal_reference;
@@ -458,6 +489,10 @@ extern void UpdateFramePackingArrangement(VideoParameters *p_Vid, InputParameter
 extern void UpdateModalityInfo(SEIParameters *p_SEI);
 #endif
 
+#if JVET_AK2006_SPTI_SEI_MESSAGE
+extern void updateSourcePictureTimingInfo(SEIParameters *p_SEI,
+                                          VideoParameters *p_Vid, InputParameters *p_Inp);
+#endif
 
 // end of temp additions
 

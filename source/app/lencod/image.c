@@ -3175,7 +3175,12 @@ void write_non_vcl_nalu( VideoParameters *p_Vid )
   UpdateSubseqInfo (p_Vid, p_Inp, p_Vid->layer);        // Tian Dong (Sept 2002)
   UpdateSceneInformation (p_Vid->p_SEI, FALSE, 0, 0, -1); // JVT-D099, scene information SEI, nothing included by default
   UpdateFramePackingArrangement (p_Vid, p_Inp);
-
+#if JVET_AK2006_SPTI_SEI_MESSAGE
+  if (p_Inp->SptiSEIPresentFlag)
+  {
+    updateSourcePictureTimingInfo(p_Vid->p_SEI, p_Vid, p_Inp);
+  }
+#endif
   //! Commented out by StW, needs fixing in SEI.h to keep the trace file clean
   //  PrepareAggregationSEIMessage (p_Vid);
 
@@ -3248,7 +3253,12 @@ void write_non_vcl_nalu_bot_fld( VideoParameters *p_Vid )
   UpdateSubseqInfo (p_Vid, p_Inp, p_Vid->layer);        // Tian Dong (Sept 2002)
   UpdateSceneInformation (p_Vid->p_SEI, FALSE, 0, 0, -1); // JVT-D099, scene information SEI, nothing included by default
   UpdateFramePackingArrangement (p_Vid, p_Inp);
-
+#if JVET_AK2006_SPTI_SEI_MESSAGE
+  if (p_Inp->SptiSEIPresentFlag)
+  {
+    updateSourcePictureTimingInfo(p_Vid->p_SEI, p_Vid, p_Inp);
+  }
+#endif
   //! Commented out by StW, needs fixing in SEI.h to keep the trace file clean
   //  PrepareAggregationSEIMessage (p_Vid);
 

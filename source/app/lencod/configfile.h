@@ -450,6 +450,14 @@ Mapping Map[] = {
     {"ToneMappingSEIPresentFlag",&cfgparams.ToneMappingSEIPresentFlag,    0,   0.0,                       1,  0.0,              1.0,                             },
     {"ToneMappingFile",          &cfgparams.ToneMappingFile,              1,   0.0,                       0,  0.0,              0.0,             FILE_NAME_SIZE, },
 
+    // SPTI SEI cfg file
+    { "SptiSEIPresentFlag", &cfgparams.SptiSEIPresentFlag, 0, 0.0, 0, 0.0, 1.0, },
+    { "SptiSourceTimingEqualsOutputTimingFlag", &cfgparams.SptiSourceTimingEqualsOutputTimingFlag , 0, 0.0, 0, 0.0, 1.0 },
+    { "SptiSourceType", &cfgparams.SptiSourceType, 0, 0.0, 0, 0.0, 127.0, },
+    { "SptiTimeScale", &cfgparams.SptiTimeScale, 0, 0.0, 0, 1.0, },
+    { "SptiNumUnitsInElementalInterval", &cfgparams.SptiNumUnitsInElementalInterval, 0, 0.0, 0, 1.0, },
+    {"SptiDirectionFlag", &cfgparams.SptiDirectionFlag, 0, 0.0, 0, 0.0, 1.0, },
+
     {"SeparateColourPlane",      &cfgparams.separate_colour_plane_flag,   0,   0.0,                       1,  0.0,              1.0,                             },
     {"WeightY",                  &cfgparams.WeightY,                      2,   1.00,                      1,  0.0,              4.0,                             },
     {"WeightCb",                 &cfgparams.WeightCb,                     2,   1.00,                      1,  0.0,              4.0,                             },

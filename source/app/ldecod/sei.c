@@ -22,6 +22,9 @@
 #include "header.h"
 #include "mbuffer.h"
 #include "parset.h"
+#if JVET_AK2006_SPTI_SEI_MESSAGE
+#include <limits.h>
+#endif
 
 #ifdef __GNUC__
 #ifndef __clang__
@@ -57,6 +60,9 @@
 // #define PRINT_FRAME_PACKING_ARRANGEMENT_INFO       // uncomment to print frame packing arrangement SEI info
 // #define PRINT_GREEN_METADATA_INFO      // uncomment to print Green Metadata SEI info
 // #define PRINT_MODALITY_INFO                        // uncomment to print modality SEI info
+#if JVET_AK2006_SPTI_SEI_MESSAGE
+// #define PRINT_SOURCE_PICTURE_TIMING_INFO     //uncomment to print Source Picture Timing SEI info
+#endif
 
 /*!
  ************************************************************************
@@ -181,6 +187,11 @@ void InterpretSEIMessage(byte* msg, int size, VideoParameters *p_Vid, Slice *pSl
 #if JVET_AK0107_MODALITY_INFORMATION
     case  SEI_MODALITY_INFO:
       interpret_modality_info( msg+offset, payload_size, p_Vid );
+      break;
+#endif
+#if JVET_AK2006_SPTI_SEI_MESSAGE
+    case SEI_SOURCE_PICTURE_TIMING_INFO:
+      interpret_source_picture_timing_info(msg + offset, payload_size, p_Vid);
       break;
 #endif
     default:
@@ -2385,4 +2396,185 @@ void interpret_green_metadata_info(byte* payload, int size, VideoParameters *p_V
  }
    free( buf );
  }
+#endif
+#if JVET_AK2006_SPTI_SEI_MESSAGE
+void interpret_source_picture_timing_info(byte *payload, int size,
+                                          VideoParameters *p_Vid) 
+{
+  Bitstream *buf;
+
+  source_picture_timing_info_struct source_picture_timing_info;
+
+  buf = malloc(sizeof(Bitstream));
+  buf->bitstream_length = size;
+  buf->streamBuffer = payload;
+  buf->frame_bitoffset = 0;
+
+  p_Dec->UsedBits = 0;
+
+  source_picture_timing_info.spti_source_timing_equals_output_timing_flag =
+      FALSE;
+  source_picture_timing_info.spti_source_type = 0;
+  source_picture_timing_info.spti_time_scale = 27000000;
+  source_picture_timing_info.spti_num_units_in_elemental_interval = 1080000;
+  source_picture_timing_info.spti_direction_flag = FALSE;
+  source_picture_timing_info.spti_cancel_flag = FALSE;
+  source_picture_timing_info.spti_persistence_flag = TRUE;
+  source_picture_timing_info.spti_source_type_present_flag = FALSE;
+  source_picture_timing_info.spti_max_sublayers_minus1 = 0; //temporal_id
+  source_picture_timing_info.spti_sublayer_interval_scale_factor = NULL;
+  source_picture_timing_info.spti_sublayer_synthesized_picture_flag = NULL;
+
+  source_picture_timing_info.spti_cancel_flag =
+      read_u_1("SEI: spti_cancel_flag", buf, &p_Dec->UsedBits);
+
+  if (!source_picture_timing_info.spti_cancel_flag) 
+  {
+    source_picture_timing_info.spti_persistence_flag =
+        read_u_1("SEI: spti_persistence_flag", buf, &p_Dec->UsedBits);
+    source_picture_timing_info.spti_source_timing_equals_output_timing_flag =
+        read_u_1("SEI: spti_source_timing_equals_output_timing_flag", buf,
+                 &p_Dec->UsedBits);
+
+    if (!source_picture_timing_info
+             .spti_source_timing_equals_output_timing_flag) 
+    {
+        source_picture_timing_info.spti_source_type_present_flag = read_u_1(
+            "SEI: spti_source_type_present_flag", buf, &p_Dec->UsedBits);
+
+        if (source_picture_timing_info.spti_source_type_present_flag) 
+        {
+            source_picture_timing_info.spti_source_type =
+                read_u_v(16, "SEI: spti_source_type", buf, &p_Dec->UsedBits);
+            assert(source_picture_timing_info.spti_source_type <= 127);
+        }
+
+        source_picture_timing_info.spti_time_scale =
+            read_u_v(32, "SEI: spti_time_scale", buf, &p_Dec->UsedBits);
+        assert(source_picture_timing_info.spti_time_scale != 0);
+
+        source_picture_timing_info.spti_num_units_in_elemental_interval =
+            read_u_v(32, "SEI: spti_num_units_in_elemental_interval", buf,
+                     &p_Dec->UsedBits);
+        assert(source_picture_timing_info.spti_num_units_in_elemental_interval != 0);
+
+        source_picture_timing_info.spti_direction_flag =
+            read_u_1("SEI: spti_direction_flag", buf, &p_Dec->UsedBits);
+
+        if (source_picture_timing_info.spti_persistence_flag) 
+        {
+            source_picture_timing_info.spti_max_sublayers_minus1 = read_u_v(
+                3, "SEI: spti_max_sublayers_minus_1", buf, &p_Dec->UsedBits);
+        }
+
+        unsigned int spti_min_temporal_Sublayer =
+            (source_picture_timing_info.spti_persistence_flag
+                 ? 0
+                 : source_picture_timing_info.spti_max_sublayers_minus1);
+
+        source_picture_timing_info.spti_sublayer_interval_scale_factor =
+            (unsigned int *)malloc(
+                (source_picture_timing_info.spti_max_sublayers_minus1 + 1) *
+                sizeof(unsigned int));
+        source_picture_timing_info.spti_sublayer_synthesized_picture_flag =
+            (Boolean *)malloc(
+                (source_picture_timing_info.spti_max_sublayers_minus1 + 1) *
+                sizeof(Boolean));
+
+        for (unsigned int i = spti_min_temporal_Sublayer;
+             i <= source_picture_timing_info.spti_max_sublayers_minus1;
+             i++) 
+        {
+            source_picture_timing_info.spti_sublayer_interval_scale_factor[i] =
+                read_ue_v("spti_sublayer_interval_scale_factor", buf,
+                          &p_Dec->UsedBits);
+            assert(source_picture_timing_info.spti_sublayer_interval_scale_factor[i] >= 0 && source_picture_timing_info.spti_sublayer_interval_scale_factor[i] <= UINT_MAX - 1);
+
+            source_picture_timing_info.spti_sublayer_synthesized_picture_flag[i] =
+                read_u_1("spti_sublayer_synthesized_picture_flag", buf,
+                         &p_Dec->UsedBits);
+        }
+    }
+  }
+
+#ifdef PRINT_SOURCE_PICTURE_TIMING_INFO
+  printf("Source Picture Timing SEI Message \n");
+  printf("spti_cancel_flag %d \n", source_picture_timing_info.spti_cancel_flag);
+
+  if (!source_picture_timing_info.spti_cancel_flag) 
+  {
+    printf("spti_persistence_flag %d \n",
+           source_picture_timing_info.spti_persistence_flag);
+    printf("spti_source_timing_equals_output_timing_flag %d \n",
+           source_picture_timing_info
+               .spti_source_timing_equals_output_timing_flag);
+
+    if (!source_picture_timing_info
+             .spti_source_timing_equals_output_timing_flag) 
+    {
+        printf("spti_source_type_present_flag %d \n",
+               source_picture_timing_info.spti_source_type_present_flag);
+
+        if (source_picture_timing_info.spti_source_type_present_flag) 
+        {
+            printf("spti_source_type %d \n",
+                   source_picture_timing_info.spti_source_type);
+        }
+
+        printf("spti_time_scale %d \n",
+               source_picture_timing_info.spti_time_scale);
+        printf("spti_num_units_in_elemental_interval %d \n",
+               source_picture_timing_info.spti_num_units_in_elemental_interval);
+        printf("spti_direction_flag %d \n",
+               source_picture_timing_info.spti_direction_flag);
+
+        if (source_picture_timing_info.spti_persistence_flag) 
+        {
+            printf("spti_max_sublayers_minus1 %d \n",
+                   source_picture_timing_info.spti_max_sublayers_minus1);
+        }
+
+        unsigned int spti_min_temporal_Sublayer =
+            (source_picture_timing_info.spti_persistence_flag
+                 ? 0
+                 : source_picture_timing_info.spti_max_sublayers_minus1);
+
+        printf("spti_sublayer_interval_scale_factor \t");
+        for (unsigned int i = spti_min_temporal_Sublayer;
+             i <= source_picture_timing_info.spti_max_sublayers_minus1;
+             i++) 
+        {
+            printf(
+                "%d ",
+                source_picture_timing_info.spti_sublayer_interval_scale_factor[i]);
+        }
+
+        printf("\nspti_sublayer_synthesized_picture_flag \t");
+        for (unsigned int i = spti_min_temporal_Sublayer;
+             i <= source_picture_timing_info.spti_max_sublayers_minus1;
+             i++) 
+        {
+            printf("%d ", source_picture_timing_info
+                              .spti_sublayer_synthesized_picture_flag[i]);
+        }
+        printf("\n");
+    }
+  }
+#undef PRINT_SOURCE_PICTURE_TIMING_INFO
+#endif
+  if ((!source_picture_timing_info.spti_cancel_flag) &&
+      (!!source_picture_timing_info
+             .spti_source_timing_equals_output_timing_flag)) 
+  {
+    if (source_picture_timing_info.spti_sublayer_interval_scale_factor) 
+    {
+        free(source_picture_timing_info.spti_sublayer_interval_scale_factor);
+    }
+    if (source_picture_timing_info.spti_sublayer_synthesized_picture_flag) 
+    {
+        free(source_picture_timing_info.spti_sublayer_synthesized_picture_flag);
+    }
+  }
+  free(buf);
+}
 #endif
