@@ -402,6 +402,13 @@ struct inp_par_enc
   int ToneMappingSEIPresentFlag;
   char ToneMappingFile[FILE_NAME_SIZE];    //!< ToneMapping SEI message cfg file
 
+  Boolean SptiSEIPresentFlag;
+  Boolean SptiSourceTimingEqualsOutputTimingFlag;
+  int SptiSourceType;
+  int SptiTimeScale;
+  int SptiNumUnitsInElementalInterval;
+  Boolean SptiDirectionFlag;
+
   // prediction structure
   int PreferDispOrder;       //!< Prefer display order when building the prediction structure as opposed to coding order
   int PreferPowerOfTwo;      //!< Prefer prediction structures that have lengths expressed as powers of two

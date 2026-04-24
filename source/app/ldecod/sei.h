@@ -12,6 +12,7 @@
 #define SEI_H
 
 #define JVET_AK0107_MODALITY_INFORMATION 1
+#define JVET_AK2006_SPTI_SEI_MESSAGE 1
 
 typedef enum {
   SEI_BUFFERING_PERIOD = 0,
@@ -60,6 +61,9 @@ typedef enum {
   SEI_OPERATION_POINTS_NOT_PRESENT,
   SEI_BASE_VIEW_TEMPORAL_HRD,
   SEI_FRAME_PACKING_ARRANGEMENT,
+#if JVET_AK2006_SPTI_SEI_MESSAGE
+  SEI_SOURCE_PICTURE_TIMING_INFO,
+#endif
   SEI_GREEN_METADATA=56,
 #if JVET_AK0107_MODALITY_INFORMATION
   SEI_MODALITY_INFO = 218,
@@ -145,6 +149,23 @@ typedef struct
    int modality_type_extension_bits; 
  } modality_information_struct;
 #endif
+#if JVET_AK2006_SPTI_SEI_MESSAGE
+//! Source Picture Timing Information
+typedef struct 
+{
+  Boolean spti_source_timing_equals_output_timing_flag;
+  unsigned int spti_source_type;
+  unsigned int spti_time_scale;
+  unsigned int spti_num_units_in_elemental_interval;
+  Boolean spti_direction_flag;
+  Boolean spti_cancel_flag;
+  Boolean spti_persistence_flag;
+  Boolean spti_source_type_present_flag;
+  unsigned int spti_max_sublayers_minus1;
+  unsigned int *spti_sublayer_interval_scale_factor;
+  Boolean *spti_sublayer_synthesized_picture_flag;
+} source_picture_timing_info_struct;
+#endif
 
 
 void InterpretSEIMessage                                ( byte* payload, int size, VideoParameters *p_Vid, Slice *pSlice );
@@ -177,6 +198,10 @@ void interpret_frame_packing_arrangement_info           ( byte* payload, int siz
 void interpret_green_metadata_info                       (byte* payload, int size, VideoParameters *p_Vid );
 #if JVET_AK0107_MODALITY_INFORMATION
 void interpret_modality_info                            ( byte* payload, int size, VideoParameters *p_Vid );
+#endif
+#if JVET_AK2006_SPTI_SEI_MESSAGE
+void interpret_source_picture_timing_info(byte *payload, int size,
+                                          VideoParameters *p_Vid);
 #endif
 #if (ENABLE_OUTPUT_TONEMAPPING)
 void tone_map               (imgpel** imgX, imgpel* lut, int size_x, int size_y);

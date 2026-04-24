@@ -56,6 +56,14 @@ static void ClearModalityInfo(SEIParameters *p_SEI);
 static void CloseModalityInfo(SEIParameters *p_SEI);
 static void FinalizeModalityInfo(SEIParameters *p_SEI);
 #endif
+#if JVET_AK2006_SPTI_SEI_MESSAGE
+static void InitSourcePictureTimingInfo(SEIParameters *p_SEI,
+                                        VideoParameters *p_Vid);
+static void ClearSourcePictureTimingInfo(SEIParameters *p_SEI,
+                                         VideoParameters *p_Vid);
+static void CloseSourcePictureTimingInfo(SEIParameters *p_SEI);
+static void FinalizeSourcePictureTimingInfo(SEIParameters *p_SEI);
+#endif
 
 void init_sei(SEIParameters *p_SEI)
 {
@@ -85,6 +93,9 @@ void init_sei(SEIParameters *p_SEI)
   p_SEI->seiHasPanScanRectInfo = FALSE;
 #if JVET_AK0107_MODALITY_INFORMATION
   p_SEI->seiHasModalityInfo = FALSE;
+#endif
+#if JVET_AK2006_SPTI_SEI_MESSAGE
+  p_SEI->seiHasSourcePictureTiming_info = FALSE;
 #endif
 }
 
@@ -140,6 +151,10 @@ void InitSEIMessages(VideoParameters *p_Vid, InputParameters *p_Inp)
   // init Modality Information
   InitModalityInfo(p_SEI);
 #endif
+#if JVET_AK2006_SPTI_SEI_MESSAGE
+  // init Source Picture Timing Info
+  InitSourcePictureTimingInfo(p_SEI, p_Vid);
+#endif
 }
 
 void CloseSEIMessages(VideoParameters *p_Vid, InputParameters *p_Inp)
@@ -165,6 +180,9 @@ void CloseSEIMessages(VideoParameters *p_Vid, InputParameters *p_Inp)
   CloseFramePackingArrangement(p_SEI);
 #if JVET_AK0107_MODALITY_INFORMATION
   CloseModalityInfo(p_SEI);
+#endif
+#if JVET_AK2006_SPTI_SEI_MESSAGE
+  CloseSourcePictureTimingInfo(p_SEI);
 #endif
 
   for (i=0; i<MAX_LAYER_NUMBER; i++)
@@ -210,7 +228,10 @@ Boolean HaveAggregationSEI(VideoParameters *p_Vid)
   if (p_SEI->seiHasModalityInfo)
     return TRUE;
 #endif
-
+#if JVET_AK2006_SPTI_SEI_MESSAGE
+  if (p_SEI->seiHasSourcePictureTiming_info)
+    return TRUE;
+#endif
   return FALSE;
 //  return p_Inp->SparePictureOption && ( seiHasSpare_picture || seiHasSubseq_information ||
 //    seiHasSubseq_layer_characteristics || seiHasSubseq_characteristics );
@@ -3162,6 +3183,18 @@ void PrepareAggregationSEIMessage(VideoParameters *p_Vid)
     has_aggregation_sei_message = TRUE;
   }
 #endif
+#if JVET_AK2006_SPTI_SEI_MESSAGE
+  if (p_SEI->seiHasSourcePictureTiming_info) 
+  {
+    FinalizeSourcePictureTimingInfo(p_SEI);
+    write_sei_message(p_SEI, AGGREGATION_SEI,
+                      p_SEI->seiSourcePictureTiming.data->streamBuffer,
+                      p_SEI->seiSourcePictureTiming.payloadSize,
+                      SEI_SOURCE_PICTURE_TIMING_INFO);
+    has_aggregation_sei_message = TRUE;
+    ClearSourcePictureTimingInfo(p_SEI, p_Vid);
+  }
+#endif
 
   // after all the sei payload is written
   if (has_aggregation_sei_message)
@@ -3192,3 +3225,173 @@ void free_drpm_buffer( DecRefPicMarking_t *pDRPM )
   free( pTmp );
 }
 
+#if JVET_AK2006_SPTI_SEI_MESSAGE
+/*!
+ ************************************************************************
+ * \functions on Source Picture Timing Information SEI message
+ * \brief
+ *    Based on JVET-AK2006
+ ************************************************************************
+ */
+static void InitSourcePictureTimingInfo(SEIParameters *p_SEI,
+                                        VideoParameters *p_Vid) 
+{
+  p_SEI->seiSourcePictureTiming.data = malloc(sizeof(Bitstream));
+  p_SEI->seiSourcePictureTiming.spti_sublayer_interval_scale_factor =
+      (unsigned int *)malloc((p_Vid->temporal_id + 1 ) * sizeof(unsigned int));
+  p_SEI->seiSourcePictureTiming.spti_sublayer_synthesized_picture_flag =
+      (Boolean *)malloc((p_Vid->temporal_id + 1) * sizeof(Boolean));
+  if (p_SEI->seiSourcePictureTiming.data == NULL)
+    no_mem_exit(
+        "InitSourcePictureTimingInfo: p_SEI->seiSourcePictureTiming.data");
+  p_SEI->seiSourcePictureTiming.data->streamBuffer = malloc(MAXRTPPAYLOADLEN);
+  if (p_SEI->seiSourcePictureTiming.data->streamBuffer == NULL)
+    no_mem_exit("InitSourcePictureTimingInfo: "
+                "p_SEI->seiSourcePictureTiming.data->streamBuffer");
+  ClearSourcePictureTimingInfo(p_SEI, p_Vid);
+}
+
+static void ClearSourcePictureTimingInfo(SEIParameters *p_SEI,
+                                         VideoParameters *p_Vid) {
+  memset(p_SEI->seiSourcePictureTiming.data->streamBuffer, 0, MAXRTPPAYLOADLEN);
+  p_SEI->seiSourcePictureTiming.data->bits_to_go = 8;
+  p_SEI->seiSourcePictureTiming.data->byte_pos = 0;
+  p_SEI->seiSourcePictureTiming.data->byte_buf = 0;
+  p_SEI->seiSourcePictureTiming.payloadSize = 0;
+
+  p_SEI->seiSourcePictureTiming.spti_source_timing_equals_output_timing_flag =
+      TRUE;
+  p_SEI->seiSourcePictureTiming.spti_source_type = 0;
+  p_SEI->seiSourcePictureTiming.spti_time_scale = 27000000;
+  p_SEI->seiSourcePictureTiming.spti_num_units_in_elemental_interval = 1080000;
+  p_SEI->seiSourcePictureTiming.spti_direction_flag = FALSE;
+  p_SEI->seiSourcePictureTiming.spti_cancel_flag = FALSE;
+  p_SEI->seiSourcePictureTiming.spti_persistence_flag = FALSE;
+  p_SEI->seiSourcePictureTiming.spti_source_type_present_flag = FALSE;
+  p_SEI->seiSourcePictureTiming.spti_max_sublayers_minus1 = p_Vid->temporal_id;
+
+  memset(p_SEI->seiSourcePictureTiming.spti_sublayer_interval_scale_factor, 0,
+         (p_Vid->temporal_id + 1) * sizeof(unsigned int));
+  memset(p_SEI->seiSourcePictureTiming.spti_sublayer_synthesized_picture_flag,
+         FALSE, (p_Vid->temporal_id + 1) * sizeof(Boolean));
+
+  p_SEI->seiHasSourcePictureTiming_info = FALSE;
+}
+
+void updateSourcePictureTimingInfo(SEIParameters *p_SEI,
+                                   VideoParameters *p_Vid, InputParameters *p_Inp) {
+  p_SEI->seiSourcePictureTiming.spti_source_timing_equals_output_timing_flag =
+      p_Inp->SptiSourceTimingEqualsOutputTimingFlag;
+  p_SEI->seiSourcePictureTiming.spti_source_type = p_Inp->SptiSourceType;
+  p_SEI->seiSourcePictureTiming.spti_time_scale = p_Inp->SptiTimeScale;
+  p_SEI->seiSourcePictureTiming.spti_num_units_in_elemental_interval = p_Inp->SptiNumUnitsInElementalInterval;
+  p_SEI->seiSourcePictureTiming.spti_direction_flag = p_Inp->SptiDirectionFlag;
+  p_SEI->seiSourcePictureTiming.spti_cancel_flag = FALSE;
+  p_SEI->seiSourcePictureTiming.spti_persistence_flag = TRUE;
+  p_SEI->seiSourcePictureTiming.spti_source_type_present_flag =
+      p_SEI->seiSourcePictureTiming.spti_source_type == 0 ? FALSE : TRUE;
+  ;
+  p_SEI->seiSourcePictureTiming.spti_max_sublayers_minus1 =
+      p_Vid->temporal_id;
+
+  unsigned int spti_min_temporal_Sublayer =
+      (p_SEI->seiSourcePictureTiming.spti_persistence_flag
+           ? 0
+           : p_SEI->seiSourcePictureTiming.spti_max_sublayers_minus1);
+
+  for (unsigned int i = spti_min_temporal_Sublayer;
+       i <= p_SEI->seiSourcePictureTiming.spti_max_sublayers_minus1;
+       i++) {
+    p_SEI->seiSourcePictureTiming.spti_sublayer_interval_scale_factor[i] =
+        1 << (p_SEI->seiSourcePictureTiming.spti_max_sublayers_minus1 - i);
+    p_SEI->seiSourcePictureTiming.spti_sublayer_synthesized_picture_flag[i] =
+        FALSE;
+  }
+
+  p_SEI->seiHasSourcePictureTiming_info = TRUE;
+}
+
+static void FinalizeSourcePictureTimingInfo(SEIParameters *p_SEI) {
+  Bitstream *bitstream = p_SEI->seiSourcePictureTiming.data;
+
+  write_u_1("SEI: spti_cancel_flag",
+            p_SEI->seiSourcePictureTiming.spti_cancel_flag, bitstream);
+
+  if (!p_SEI->seiSourcePictureTiming.spti_cancel_flag) {
+    write_u_1("SEI: spti_persistence_flag",
+              p_SEI->seiSourcePictureTiming.spti_persistence_flag, bitstream);
+    write_u_1("SEI: spti_source_timing_equals_output_timing_flag",
+              p_SEI->seiSourcePictureTiming
+                  .spti_source_timing_equals_output_timing_flag,
+              bitstream);
+
+    if (!p_SEI->seiSourcePictureTiming
+             .spti_source_timing_equals_output_timing_flag) {
+      write_u_1("SEI: spti_source_type_present_flag",
+                p_SEI->seiSourcePictureTiming.spti_source_type_present_flag,
+                bitstream);
+
+      if (p_SEI->seiSourcePictureTiming.spti_source_type_present_flag) {
+        write_u_v(16, "SEI: spti_source_type",
+                  p_SEI->seiSourcePictureTiming.spti_source_type, bitstream);
+      }
+
+      write_u_v(32, "SEI: spti_time_scale",
+                p_SEI->seiSourcePictureTiming.spti_time_scale, bitstream);
+      write_u_v(
+          32, "SEI: spti_num_units_in_elemental_interval",
+          p_SEI->seiSourcePictureTiming.spti_num_units_in_elemental_interval,
+          bitstream);
+      write_u_1("SEI: spti_direction_flag",
+                p_SEI->seiSourcePictureTiming.spti_direction_flag, bitstream);
+
+      if (p_SEI->seiSourcePictureTiming.spti_persistence_flag) {
+        write_u_v(3, "SEI: spti_max_sublayers_minus_1",
+                  p_SEI->seiSourcePictureTiming.spti_max_sublayers_minus1,
+                  bitstream);
+      }
+
+      unsigned int spti_min_temporal_Sublayer =
+          (p_SEI->seiSourcePictureTiming.spti_persistence_flag
+               ? 0
+               : p_SEI->seiSourcePictureTiming.spti_max_sublayers_minus1);
+
+      for (unsigned int i = spti_min_temporal_Sublayer;
+           i <= p_SEI->seiSourcePictureTiming.spti_max_sublayers_minus1;
+           i++) {
+        write_ue_v("spti_sublayer_interval_scale_factor",
+                   p_SEI->seiSourcePictureTiming
+                       .spti_sublayer_interval_scale_factor[i],
+                   bitstream);
+        write_u_1("spti_sublayer_synthesized_picture_flag",
+                  p_SEI->seiSourcePictureTiming
+                      .spti_sublayer_synthesized_picture_flag[i],
+                  bitstream);
+      }
+    }
+  }
+
+  // make sure the payload is byte aligned, stuff bits are 10..0
+  if (bitstream->bits_to_go != 8) {
+    (bitstream->byte_buf) <<= 1;
+    bitstream->byte_buf |= 1;
+    bitstream->bits_to_go--;
+    if (bitstream->bits_to_go != 0)
+      (bitstream->byte_buf) <<= (bitstream->bits_to_go);
+    bitstream->bits_to_go = 8;
+    bitstream->streamBuffer[bitstream->byte_pos++] = bitstream->byte_buf;
+    bitstream->byte_buf = 0;
+  }
+  p_SEI->seiSourcePictureTiming.payloadSize = bitstream->byte_pos;
+}
+
+static void CloseSourcePictureTimingInfo(SEIParameters *p_SEI) {
+  if (p_SEI->seiSourcePictureTiming.data) {
+    free(p_SEI->seiSourcePictureTiming.data->streamBuffer);
+    free(p_SEI->seiSourcePictureTiming.data);
+    free(p_SEI->seiSourcePictureTiming.spti_sublayer_interval_scale_factor);
+    free(p_SEI->seiSourcePictureTiming.spti_sublayer_synthesized_picture_flag);
+  }
+  p_SEI->seiSourcePictureTiming.data = NULL;
+}
+#endif
