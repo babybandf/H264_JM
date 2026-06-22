@@ -1,0 +1,106 @@
+#!/bin/bash
+
+CASE=akiyo
+FRAMES=1
+
+ALL_CASES="akiyo football city256 city352"
+
+usage() {
+    echo "Usage: $0 [-c case] [-n frames] [-h]"
+    echo "  -c case    Test case: akiyo (default), football, city256, city352, all"
+    echo "  -n frames  Number of frames to encode (default: 1)"
+    echo "  -h         Show this help"
+    exit 0
+}
+
+while getopts "c:n:h" opt; do
+    case "$opt" in
+        c) CASE=$OPTARG ;;
+        n) FRAMES=$OPTARG ;;
+        h) usage ;;
+        *) usage ;;
+    esac
+done
+
+setup_case() {
+    local c=$1
+    case "$c" in
+        akiyo)
+            INPUT_FILE=./sequences/akiyo_cif.yuv
+            SOURCE_WIDTH=352
+            SOURCE_HEIGHT=288
+            BITSTREAM_FILE=./stream_akiyo_cif.264
+            ;;
+        football)
+            INPUT_FILE=./sequences/football_cif.yuv
+            SOURCE_WIDTH=352
+            SOURCE_HEIGHT=288
+            BITSTREAM_FILE=./stream_football_cif.264
+            ;;
+        city256)
+            INPUT_FILE=./sequences/city_256x256.yuv
+            SOURCE_WIDTH=256
+            SOURCE_HEIGHT=256
+            BITSTREAM_FILE=./stream_city_256x256.264
+            ;;
+        city352)
+            INPUT_FILE=./sequences/city_cif.yuv
+            SOURCE_WIDTH=352
+            SOURCE_HEIGHT=288
+            BITSTREAM_FILE=./stream_city_cif.264
+            ;;
+        *)
+            echo "Unknown case: $c"
+            echo "Available cases: ${ALL_CASES} all"
+            return 1
+            ;;
+    esac
+}
+
+export JM_INTRA_DUMP_DIR=dump_output
+
+run_encode() {
+    local c=$1
+    setup_case "$c" || return 1
+
+    echo "Running test case: $c (${SOURCE_WIDTH}x${SOURCE_HEIGHT})"    
+
+    rm -fr "${JM_INTRA_DUMP_DIR}"
+    mkdir -p "${JM_INTRA_DUMP_DIR}"
+
+    ./bin/lencod_static -d cfg/encoder.cfg \
+        -p InputFile=${INPUT_FILE} \
+        -p SourceWidth=${SOURCE_WIDTH} \
+        -p SourceHeight=${SOURCE_HEIGHT} \
+        -p FrameToBeEncoded=${FRAMES} \
+        -p IntraPeriod=1 \
+        -p OutputFile=${BITSTREAM_FILE}
+
+    md5sum ${BITSTREAM_FILE}
+
+    local CASE_DIR=dump_output_cases/${c}
+    mkdir -p dump_output_cases
+    rm -fr "${CASE_DIR}"
+    mv "${JM_INTRA_DUMP_DIR}" "${CASE_DIR}"
+
+    python3 tools/verify_dump.py --pixels ${CASE_DIR}/intra_dump.bin > ${CASE_DIR}/dump_log.txt
+    python3 tools/verify_dump.py --pixels ${CASE_DIR}/intra_dump_postorder.bin > ${CASE_DIR}/dump_postorder_log.txt
+    cat ${CASE_DIR}/dump_log.txt
+    cat ${CASE_DIR}/dump_postorder_log.txt
+}
+
+#if [ ! -f ./bin/lencod ]; then
+    echo "Building lencod..."
+    mkdir -p build && cd build
+    cmake .. -DCMAKE_BUILD_TYPE=Debug
+    make -j
+    cd ..
+#fi
+
+if [ "$CASE" = "all" ]; then
+    for c in ${ALL_CASES}; do
+        run_encode "$c"
+    done
+else
+    run_encode "$CASE"
+fi

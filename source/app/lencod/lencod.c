@@ -103,6 +103,7 @@
 #include "get_block_otf.h"
 
 #include "wp.h"
+#include "intra_dump.h"
 
 //check the scaling factor to avoid overflow;
 #if !IMGTYPE
@@ -892,6 +893,20 @@ static void encode_sequence(VideoParameters *p_Vid, InputParameters *p_Inp)
   SeqStructure *p_seq_struct = p_Vid->p_pred;
   FrameUnitStruct *p_frm;
 
+  IntraDumper* dumper = intra_dumper_get_instance();
+  if (dumper->enabled) {
+    IntraDumpSeqInfo info;
+    info.picWidthLuma = (uint32_t)p_Vid->width;
+    info.picHeightLuma = (uint32_t)p_Vid->height;
+    info.mbSize = 16;
+    info.chromaFormat = (uint32_t)p_Vid->yuv_format;
+    info.bitDepthLuma = (uint32_t)p_Vid->bitdepth_luma;
+    info.bitDepthChroma = (uint32_t)p_Vid->bitdepth_chroma;
+    info.baseQp = (uint32_t)p_Vid->qp;
+    info.useDqp = 0;
+    intra_dumper_write_seq_header(dumper, &info);
+  }
+
 #if (MVC_EXTENSION_ENABLE)
   int tmp_rate_control_enable = p_Inp->RCEnable;
 
@@ -982,7 +997,9 @@ static void encode_sequence(VideoParameters *p_Vid, InputParameters *p_Inp)
       set_redundant_frame(p_Vid, p_Inp);
     }
 
+    intra_dumper_begin_picture(dumper, (uint32_t)curr_frame_to_code);
     frame_coded = encode_one_frame(p_Vid, p_Inp); // encode one frame;
+    intra_dumper_end_picture(dumper);
     if ( !frame_coded )
     {
       p_Vid->frame_num = p_Vid->p_CurrEncodePar->frame_num = frame_num_bak;

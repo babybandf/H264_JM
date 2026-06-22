@@ -28,6 +28,248 @@
 #include "vlc.h"
 #include "rdopt.h"
 #include "mv_search.h"
+#include "intra_dump.h"
+
+extern void set_intrapred_chroma(Macroblock *currMB, int *left_available, int *up_available, int *all_available);
+extern void set_intrapred_chroma_mbaff(Macroblock *currMB, ColorPlane pl, int *left_available, int *up_available, int *all_available);
+
+static uint8_t intra_dump_chroma_mode_kind(int mode)
+{
+  switch (mode)
+  {
+  case DC_PRED_8:   return MODE_KIND_DC;
+  case HOR_PRED_8:  return MODE_KIND_HOR;
+  case VERT_PRED_8: return MODE_KIND_VER;
+  case PLANE_8:     return MODE_KIND_PLANE;
+  default:          return MODE_KIND_DC;
+  }
+}
+
+static void intra_dump_make_chroma_pred(Macroblock *currMB, int uv, int mode,
+                                        imgpel pred[MB_BLOCK_SIZE][MB_BLOCK_SIZE], imgpel *predRows[MB_BLOCK_SIZE])
+{
+  VideoParameters *p_Vid = currMB->p_Vid;
+  InputParameters *p_Inp = currMB->p_Inp;
+  imgpel **img = p_Vid->enc_picture->imgUV[uv];
+  PixelPos pixLeft, pixUp, pixUpLeft;
+  int availableLeft, availableUp, availableUpLeft;
+  int w = p_Vid->mb_cr_size_x;
+  int h = p_Vid->mb_cr_size_y;
+  imgpel dc = (imgpel)p_Vid->dc_pred_value_comp[uv + 1];
+  imgpel top[MB_BLOCK_SIZE];
+  imgpel left[MB_BLOCK_SIZE];
+  imgpel topLeft;
+
+  for (int y = 0; y < MB_BLOCK_SIZE; y++)
+    predRows[y] = pred[y];
+
+  p_Vid->getNeighbour(currMB, -1, -1, p_Vid->mb_size[IS_CHROMA], &pixUpLeft);
+  p_Vid->getNeighbour(currMB,  0, -1, p_Vid->mb_size[IS_CHROMA], &pixUp);
+  p_Vid->getNeighbour(currMB, -1,  0, p_Vid->mb_size[IS_CHROMA], &pixLeft);
+
+  availableLeft = pixLeft.available;
+  availableUp = pixUp.available;
+  availableUpLeft = pixUpLeft.available;
+
+  if (p_Inp->UseConstrainedIntraPred)
+  {
+    availableLeft = pixLeft.available ? p_Vid->intra_block[pixLeft.mb_addr] : 0;
+    availableUp = pixUp.available ? p_Vid->intra_block[pixUp.mb_addr] : 0;
+    availableUpLeft = pixUpLeft.available ? p_Vid->intra_block[pixUpLeft.mb_addr] : 0;
+  }
+
+  topLeft = availableUpLeft ? img[pixUpLeft.pos_y][pixUpLeft.pos_x] : dc;
+  for (int x = 0; x < w; x++)
+    top[x] = availableUp ? img[pixUp.pos_y][pixUp.pos_x + x] : dc;
+  for (int y = 0; y < h; y++)
+    left[y] = availableLeft ? img[pixLeft.pos_y + y][pixLeft.pos_x] : dc;
+
+  if (mode == VERT_PRED_8)
+  {
+    for (int y = 0; y < h; y++)
+      memcpy(pred[y], top, w * sizeof(imgpel));
+  }
+  else if (mode == HOR_PRED_8)
+  {
+    for (int y = 0; y < h; y++)
+      for (int x = 0; x < w; x++)
+        pred[y][x] = left[y];
+  }
+  else if (mode == PLANE_8)
+  {
+    int crX = w >> 1;
+    int crY = h >> 1;
+    int ih, iv, ib, ic, iaa;
+    if (crY > 8)
+      crY = 8;
+
+    ih = crX * (top[w - 1] - topLeft);
+    for (int x = 0; x < crX - 1; x++)
+      ih += (x + 1) * (top[crX + x] - top[crX - 2 - x]);
+
+    iv = crY * (left[h - 1] - topLeft);
+    for (int y = 0; y < crY - 1; y++)
+      iv += (y + 1) * (left[crY + y] - left[crY - 2 - y]);
+
+    ib = w == 8 ? (17 * ih + 2 * w) >> 5 : (5 * ih + 2 * w) >> 6;
+    ic = h == 8 ? (17 * iv + 2 * h) >> 5 : (5 * iv + 2 * h) >> 6;
+    iaa = 16 * (top[w - 1] + left[h - 1]) + (1 - crX) * ib + (1 - crY) * ic;
+
+    for (int y = 0; y < h; y++)
+      for (int x = 0; x < w; x++)
+        pred[y][x] = (imgpel)iClip1(p_Vid->max_pel_value_comp[uv + 1], (iaa + x * ib + y * ic + 16) >> 5);
+  }
+  else
+  {
+    for (int by = 0; by < h; by += BLOCK_SIZE)
+    {
+      for (int bx = 0; bx < w; bx += BLOCK_SIZE)
+      {
+        int topSum = 0;
+        int leftSum = 0;
+        imgpel value = dc;
+
+        for (int i = 0; i < BLOCK_SIZE; i++)
+        {
+          topSum += top[bx + i];
+          leftSum += left[by + i];
+        }
+
+        if (availableUp && availableLeft)
+          value = (imgpel)((topSum + leftSum + 4) >> 3);
+        else if (availableUp)
+          value = (imgpel)((topSum + 2) >> 2);
+        else if (availableLeft)
+          value = (imgpel)((leftSum + 2) >> 2);
+
+        for (int y = by; y < by + BLOCK_SIZE; y++)
+          for (int x = bx; x < bx + BLOCK_SIZE; x++)
+            pred[y][x] = value;
+      }
+    }
+  }
+}
+
+static uint64_t intra_dump_compute_satd_chroma(imgpel** org, int orgX, imgpel** pred, int predX, int w, int h)
+{
+  uint64_t satd = 0;
+  for (int y = 0; y < h; y += BLOCK_SIZE)
+  {
+    for (int x = 0; x < w; x += BLOCK_SIZE)
+    {
+      satd += intra_dump_compute_satd_4x4(org + y, orgX + x, pred + y, predX + x);
+    }
+  }
+  return satd;
+}
+
+static void intra_dump_fill_chroma_ref(Macroblock *currMB, int uv, imgpel *ref, int *refLen)
+{
+  VideoParameters *p_Vid = currMB->p_Vid;
+  InputParameters *p_Inp = currMB->p_Inp;
+  imgpel **img = p_Vid->enc_picture->imgUV[uv];
+  PixelPos pix_left, pix_up, pix_up_left;
+  int available_left, available_up, available_up_left;
+  int w = p_Vid->mb_cr_size_x;
+  int h = p_Vid->mb_cr_size_y;
+  int idx = 0;
+
+  p_Vid->getNeighbour(currMB, -1, -1, p_Vid->mb_size[IS_CHROMA], &pix_up_left);
+  p_Vid->getNeighbour(currMB,  0, -1, p_Vid->mb_size[IS_CHROMA], &pix_up);
+  p_Vid->getNeighbour(currMB, -1,  0, p_Vid->mb_size[IS_CHROMA], &pix_left);
+
+  available_left = pix_left.available;
+  available_up = pix_up.available;
+  available_up_left = pix_up_left.available;
+
+  if (p_Inp->UseConstrainedIntraPred)
+  {
+    available_left = pix_left.available ? p_Vid->intra_block[pix_left.mb_addr] : 0;
+    available_up = pix_up.available ? p_Vid->intra_block[pix_up.mb_addr] : 0;
+    available_up_left = pix_up_left.available ? p_Vid->intra_block[pix_up_left.mb_addr] : 0;
+  }
+
+  ref[idx++] = available_up_left ? img[pix_up_left.pos_y][pix_up_left.pos_x] : (imgpel)p_Vid->dc_pred_value_comp[uv + 1];
+  for (int x = 0; x < w; x++)
+    ref[idx++] = available_up ? img[pix_up.pos_y][pix_up.pos_x + x] : (imgpel)p_Vid->dc_pred_value_comp[uv + 1];
+  for (int y = 0; y < h; y++)
+    ref[idx++] = available_left ? img[pix_left.pos_y + y][pix_left.pos_x] : (imgpel)p_Vid->dc_pred_value_comp[uv + 1];
+
+  *refLen = idx;
+}
+
+static void intra_dump_dump_chroma_blocks(Macroblock *currMB, IntraDumper *dumper)
+{
+  Slice *currSlice = currMB->p_Slice;
+  VideoParameters *p_Vid = currMB->p_Vid;
+  int w = p_Vid->mb_cr_size_x;
+  int h = p_Vid->mb_cr_size_y;
+  int leftAvailable, upAvailable, allAvailable;
+
+  if (!dumper->enabled || p_Vid->yuv_format == YUV400 || currSlice->P444_joined)
+    return;
+
+  if (p_Vid->mb_aff_frame_flag && p_Vid->field_mode)
+    set_intrapred_chroma_mbaff(currMB, PLANE_U, &leftAvailable, &upAvailable, &allAvailable);
+  else
+    set_intrapred_chroma(currMB, &leftAvailable, &upAvailable, &allAvailable);
+
+  for (int uv = 0; uv < 2; uv++)
+  {
+    IntraDumpBlockKey blockKey;
+    imgpel ref[33];
+    int refLen = 0;
+    uint64_t bestSatd = 0;
+
+    memset(&blockKey, 0, sizeof(blockKey));
+    blockKey.blockUid = intra_dumper_alloc_block_uid(dumper);
+    blockKey.parentUid = 0xFFFFFFFF;
+    blockKey.mbAddrX = (uint32_t)currMB->mbAddrX;
+    blockKey.mbPelX = (uint32_t)currMB->pix_c_x;
+    blockKey.mbPelY = (uint32_t)currMB->pix_c_y;
+    blockKey.blkPelXInMb = 0;
+    blockKey.blkPelYInMb = 0;
+    blockKey.width = (uint32_t)w;
+    blockKey.height = (uint32_t)h;
+    blockKey.compID = (uint8_t)(uv + 1);
+    blockKey.mbMode = 2;
+    blockKey.intraMode = (uint8_t)currMB->c_ipred_mode;
+    blockKey.partIdx = 0;
+
+    intra_dumper_begin_block(dumper, &blockKey);
+    intra_dump_fill_chroma_ref(currMB, uv, ref, &refLen);
+    intra_dumper_dump_ref_samples(dumper, ref, (uint32_t)refLen, 0);
+
+    for (int mode = DC_PRED_8; mode <= PLANE_8; mode++)
+    {
+      imgpel predStorage[MB_BLOCK_SIZE][MB_BLOCK_SIZE];
+      imgpel *predRows[MB_BLOCK_SIZE];
+      intra_dump_make_chroma_pred(currMB, uv, mode, predStorage, predRows);
+      uint64_t satd = intra_dump_compute_satd_chroma(
+        &p_Vid->pImgOrg[uv + 1][currMB->opix_c_y], currMB->pix_c_x,
+        predRows, 0, w, h);
+      IntraDumpModeMetric metric;
+      intra_dumper_dump_pred_pels(dumper, (uint32_t)mode, intra_dump_chroma_mode_kind(mode),
+        predRows, 0, (uint32_t)w, (uint32_t)h, satd);
+      metric.modeId = (uint32_t)mode;
+      metric.modeKind = intra_dump_chroma_mode_kind(mode);
+      metric.mbMode = 2;
+      metric.distortionSatd = satd;
+      intra_dumper_dump_mode_metric(dumper, &metric);
+      if (mode == currMB->c_ipred_mode)
+        bestSatd = satd;
+    }
+
+    IntraDumpFinalMode final;
+    final.modeId = (uint32_t)currMB->c_ipred_mode;
+    final.modeKind = intra_dump_chroma_mode_kind(currMB->c_ipred_mode);
+    final.mbMode = 2;
+    final.distortionSatd = bestSatd;
+    intra_dumper_dump_final_mode(dumper, &final);
+    intra_dumper_dump_recon_pels(dumper, &p_Vid->enc_picture->imgUV[uv][currMB->pix_c_y], (uint32_t)currMB->pix_c_x, (uint32_t)w, (uint32_t)h);
+    intra_dumper_end_block(dumper);
+  }
+}
 
 /*!
 *************************************************************************************
@@ -42,6 +284,18 @@ void encode_one_macroblock_high (Macroblock *currMB)
   InputParameters *p_Inp = currMB->p_Inp;
   PicMotionParams **motion = p_Vid->enc_picture->mv_info;
   RDOPTStructure  *p_RDO = currSlice->p_RDO;
+
+  IntraDumper* dumper = intra_dumper_get_instance();
+  IntraDumpMbKey mbKey;
+  if (dumper->enabled) {
+    mbKey.picIdx = (uint32_t)p_Vid->frame_no;
+    mbKey.mbAddrX = (uint32_t)currMB->mbAddrX;
+    mbKey.mbPelX = (uint32_t)currMB->pix_x;
+    mbKey.mbPelY = (uint32_t)currMB->pix_y;
+    mbKey.sliceType = (uint32_t)currSlice->slice_type;
+    mbKey.sliceQp = (int8_t)currMB->qp;
+    intra_dumper_begin_mb(dumper, &mbKey);
+  }
 
   int         max_index = 9;
   int         block, index, mode, i, j;
@@ -310,6 +564,9 @@ void encode_one_macroblock_high (Macroblock *currMB)
   //===== Decide if this MB will restrict the reference frames =====
   if (p_Inp->RestrictRef)
     update_refresh_map(currMB, intra, intra1);
+
+  intra_dump_dump_chroma_blocks(currMB, dumper);
+  intra_dumper_end_mb(dumper);
 }
 
 

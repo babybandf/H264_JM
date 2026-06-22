@@ -18,6 +18,7 @@
 #include "mb_access.h"
 #include "block.h"
 #include "mv_search.h"
+#include "me_distortion.h"
 
 void get_difference_4x4(imgpel **src, imgpel **prd, short *diff, int pos_x, int block_x)
 {
@@ -1125,6 +1126,7 @@ void intra_chroma_RD_decision (Macroblock *currMB, RD_PARAMS *enc_mb)
         {
           get_difference_4x4(&image[pos_y + block_y], &curr_mpr_16x16[mode][block_y], diff, pos_x, block_x);
           cost += p_Vid->distortion4x4(diff, min_cost);
+
           if (cost > min_cost) break;
         }
         if (cost > min_cost) break;

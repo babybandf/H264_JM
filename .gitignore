@@ -11,3 +11,5 @@ deploy
 .vs/
 .vscode/
 *.pyc
+dump_output_cases/
+JVET_HM/
