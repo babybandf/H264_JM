@@ -83,6 +83,25 @@ run_encode() {
     rm -fr "${CASE_DIR}"
     mv "${JM_INTRA_DUMP_DIR}" "${CASE_DIR}"
 
+    local BITSTREAM_BASENAME
+    BITSTREAM_BASENAME=$(basename "${BITSTREAM_FILE}")
+    if [ -f "${BITSTREAM_FILE}" ]; then
+        mv "${BITSTREAM_FILE}" "${CASE_DIR}/${BITSTREAM_BASENAME}"
+    fi
+
+    local EXTRA_FILE
+    for EXTRA_FILE in log.dat stats.dat test_rec.yuv data.txt; do
+        if [ -f "${EXTRA_FILE}" ]; then
+            mv "${EXTRA_FILE}" "${CASE_DIR}/"
+        fi
+    done
+
+    if [ -f "${INPUT_FILE}" ]; then
+        local INPUT_BASENAME
+        INPUT_BASENAME=$(basename "${INPUT_FILE}")
+        cp -f "${INPUT_FILE}" "${CASE_DIR}/${INPUT_BASENAME}"
+    fi
+
     python3 tools/verify_dump.py --pixels ${CASE_DIR}/intra_dump.bin > ${CASE_DIR}/dump_log.txt
     python3 tools/verify_dump.py --pixels ${CASE_DIR}/intra_dump_postorder.bin > ${CASE_DIR}/dump_postorder_log.txt
     cat ${CASE_DIR}/dump_log.txt

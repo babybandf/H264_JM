@@ -13,3 +13,4 @@ deploy
 *.pyc
 dump_output_cases/
 JVET_HM/
+leakybucketparam.cfg
