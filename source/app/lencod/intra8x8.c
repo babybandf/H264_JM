@@ -494,7 +494,7 @@ static inline void get_i8x8_horup(imgpel **cur_pred, imgpel *PredPel)
  *      none
  ************************************************************************
  */
-void set_intrapred_8x8(Macroblock *currMB, ColorPlane pl, int img_x,int img_y, int *left_available, int *up_available, int *all_available)
+static void set_intrapred_8x8_internal(Macroblock *currMB, ColorPlane pl, int img_x,int img_y, int *left_available, int *up_available, int *all_available, int apply_filter)
 {
   VideoParameters *p_Vid = currMB->p_Vid;
   InputParameters *p_Inp = currMB->p_Inp;
@@ -585,7 +585,18 @@ void set_intrapred_8x8(Macroblock *currMB, ColorPlane pl, int img_x,int img_y, i
     P_Z = p_Vid->dc_pred_value;
   }
 
-  LowPassForIntra8x8Pred(PredPel, block_available_up_left, block_available_up, block_available_left);
+  if (apply_filter)
+    LowPassForIntra8x8Pred(PredPel, block_available_up_left, block_available_up, block_available_left);
+}
+
+void set_intrapred_8x8(Macroblock *currMB, ColorPlane pl, int img_x,int img_y, int *left_available, int *up_available, int *all_available)
+{
+  set_intrapred_8x8_internal(currMB, pl, img_x, img_y, left_available, up_available, all_available, 1);
+}
+
+void set_intrapred_8x8_unfiltered(Macroblock *currMB, ColorPlane pl, int img_x,int img_y, int *left_available, int *up_available, int *all_available)
+{
+  set_intrapred_8x8_internal(currMB, pl, img_x, img_y, left_available, up_available, all_available, 0);
 }
 
 
@@ -601,7 +612,7 @@ void set_intrapred_8x8(Macroblock *currMB, ColorPlane pl, int img_x,int img_y, i
  *      none
  ************************************************************************
  */
-void set_intrapred_8x8_mbaff(Macroblock *currMB, ColorPlane pl, int img_x,int img_y, int *left_available, int *up_available, int *all_available)
+static void set_intrapred_8x8_mbaff_internal(Macroblock *currMB, ColorPlane pl, int img_x,int img_y, int *left_available, int *up_available, int *all_available, int apply_filter)
 {
   VideoParameters *p_Vid = currMB->p_Vid;
   InputParameters *p_Inp = currMB->p_Inp;
@@ -698,7 +709,18 @@ void set_intrapred_8x8_mbaff(Macroblock *currMB, ColorPlane pl, int img_x,int im
     P_Z = p_Vid->dc_pred_value;
   }
 
-  LowPassForIntra8x8Pred(PredPel, block_available_up_left, block_available_up, block_available_left);
+  if (apply_filter)
+    LowPassForIntra8x8Pred(PredPel, block_available_up_left, block_available_up, block_available_left);
+}
+
+void set_intrapred_8x8_mbaff(Macroblock *currMB, ColorPlane pl, int img_x,int img_y, int *left_available, int *up_available, int *all_available)
+{
+  set_intrapred_8x8_mbaff_internal(currMB, pl, img_x, img_y, left_available, up_available, all_available, 1);
+}
+
+void set_intrapred_8x8_mbaff_unfiltered(Macroblock *currMB, ColorPlane pl, int img_x,int img_y, int *left_available, int *up_available, int *all_available)
+{
+  set_intrapred_8x8_mbaff_internal(currMB, pl, img_x, img_y, left_available, up_available, all_available, 0);
 }
 
 /*!

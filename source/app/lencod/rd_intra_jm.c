@@ -279,9 +279,6 @@ int mode_decision_for_I4x4_blocks_JM_High (Macroblock *currMB, int  b8,  int  b4
     final.mbMode = 0;
     final.distortionSatd = best_satd;
     intra_dumper_dump_final_mode(dumper, &final);
-
-    intra_dumper_dump_recon_pels(dumper,
-      &p_Vid->enc_picture->imgY[pic_pix_y], (uint32_t)pic_pix_x, 4, 4);
   }
 
   //===== set intra mode prediction =====
@@ -296,6 +293,11 @@ int mode_decision_for_I4x4_blocks_JM_High (Macroblock *currMB, int  b8,  int  b4
   //===== restore reconstruction and prediction (needed if single coeffs are removed) =====
   copy_4x4block(&p_Vid->enc_picture->imgY[pic_pix_y], p_RDO->rec4x4[PLANE_Y], pic_pix_x, 0);
   copy_4x4block(&currSlice->mb_pred[0][block_y], currSlice->mpr_4x4[0][best_ipmode], block_x, 0);
+
+  if (dumper->enabled) {
+    intra_dumper_dump_recon_pels(dumper,
+      &p_Vid->enc_picture->imgY[pic_pix_y], (uint32_t)pic_pix_x, 4, 4);
+  }
 
   // SP/SI reconstuction
   if(currSlice->slice_type == SP_SLICE && !currSlice->sp2_frame_indicator)
@@ -405,7 +407,17 @@ int mode_decision_for_I8x8_blocks_JM_High (Macroblock *currMB, int b8, int lambd
   currSlice->set_intrapred_8x8(currMB, PLANE_Y, pic_pix_x, pic_pix_y, &left_available, &up_available, &all_available);
 
   if (dumper->enabled) {
-    intra_dumper_dump_ref_samples(dumper, currMB->intra8x8_pred[PLANE_Y], 25, 0);
+    imgpel refSamples[25];
+    int raw_left_available, raw_up_available, raw_all_available;
+    if (currSlice->set_intrapred_8x8 == set_intrapred_8x8_mbaff)
+      set_intrapred_8x8_mbaff_unfiltered(currMB, PLANE_Y, pic_pix_x, pic_pix_y, &raw_left_available, &raw_up_available, &raw_all_available);
+    else
+      set_intrapred_8x8_unfiltered(currMB, PLANE_Y, pic_pix_x, pic_pix_y, &raw_left_available, &raw_up_available, &raw_all_available);
+    memcpy(refSamples, currMB->intra8x8_pred[PLANE_Y], sizeof(refSamples));
+    intra_dumper_dump_ref_samples(dumper, refSamples, 25, 0);
+
+    currSlice->set_intrapred_8x8(currMB, PLANE_Y, pic_pix_x, pic_pix_y, &left_available, &up_available, &all_available);
+    intra_dumper_dump_ref_samples(dumper, currMB->intra8x8_pred[PLANE_Y], 25, 1);
     for (ipmode = 0; ipmode < NO_INTRA_PMODE; ipmode++)
     {
       get_intrapred_8x8(currMB, PLANE_Y, ipmode, left_available, up_available);
@@ -481,9 +493,6 @@ int mode_decision_for_I8x8_blocks_JM_High (Macroblock *currMB, int b8, int lambd
     final.mbMode = 1;
     final.distortionSatd = best_satd;
     intra_dumper_dump_final_mode(dumper, &final);
-
-    intra_dumper_dump_recon_pels(dumper,
-      &p_Vid->enc_picture->imgY[pic_pix_y], (uint32_t)pic_pix_x, 8, 8);
   }
 
   //===== set intra mode prediction =====
@@ -509,6 +518,11 @@ int mode_decision_for_I8x8_blocks_JM_High (Macroblock *currMB, int b8, int lambd
   //===== restore reconstruction and prediction (needed if single coeffs are removed) =====
   copy_image_data_8x8(&p_Vid->enc_picture->imgY[pic_pix_y], p_RDO->rec8x8[0], pic_pix_x, 0);
   copy_image_data_8x8(&mb_pred[block_y], currSlice->mpr_8x8[0][best_ipmode], block_x, 0);
+
+  if (dumper->enabled) {
+    intra_dumper_dump_recon_pels(dumper,
+      &p_Vid->enc_picture->imgY[pic_pix_y], (uint32_t)pic_pix_x, 8, 8);
+  }
 
   intra_dumper_end_block(dumper);
 

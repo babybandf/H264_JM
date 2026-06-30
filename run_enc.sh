@@ -58,17 +58,22 @@ setup_case() {
 }
 
 export JM_INTRA_DUMP_DIR=dump_output
+ENCODER_BIN=./bin/umake/gcc-13.3/x86_64/debug/lencod
 
 run_encode() {
     local c=$1
     setup_case "$c" || return 1
+    local encoder_bin=${ENCODER_BIN}
+    if [ ! -x "${encoder_bin}" ]; then
+        encoder_bin=./bin/lencod_static
+    fi
 
     echo "Running test case: $c (${SOURCE_WIDTH}x${SOURCE_HEIGHT})"    
 
     rm -fr "${JM_INTRA_DUMP_DIR}"
     mkdir -p "${JM_INTRA_DUMP_DIR}"
 
-    ./bin/lencod_static -d cfg/encoder.cfg \
+    "${encoder_bin}" -d cfg/encoder.cfg \
         -p InputFile=${INPUT_FILE} \
         -p SourceWidth=${SOURCE_WIDTH} \
         -p SourceHeight=${SOURCE_HEIGHT} \
