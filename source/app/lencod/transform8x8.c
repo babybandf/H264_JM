@@ -31,8 +31,28 @@
 #include "symbol.h"
 #include "mc_prediction.h"
 #include "md_distortion.h"
+#include "me_distortion.h"
 #include "quant8x8.h"
 #include "rdoq.h"
+#include "intra_dump.h"
+
+#if USE_SATD_FOR_DISTORTION
+static distblk compute_satd8x8_region(imgpel **imgRef, imgpel **imgSrc, int xRef, int xSrc)
+{
+  short diff[64];
+  short *curDiff = diff;
+
+  for (int j = 0; j < BLOCK_SIZE_8x8; j++)
+  {
+    imgpel *lineRef = &imgRef[j][xRef];
+    imgpel *lineSrc = &imgSrc[j][xSrc];
+    for (int i = 0; i < BLOCK_SIZE_8x8; i++)
+      *curDiff++ = (short)(*lineRef++ - *lineSrc++);
+  }
+
+  return dist_scale(HadamardSAD8x8(diff));
+}
+#endif
 #include "q_matrix.h"
 #include "q_offsets.h"
 #include "rdopt.h"
@@ -316,8 +336,12 @@ distblk rdcost_for_8x8_intra_blocks(Macroblock *currMB, int *nonzero, int b8, in
   //===== perform forward transform, Q, IQ, inverse transform, Reconstruction =====
   *nonzero = currMB->residual_transform_quant_luma_8x8 (currMB, PLANE_Y, b8, &dummy, 1);
 
-  //===== get distortion (SSD) of 8x8 block =====
+  //===== get distortion of 8x8 block =====
+#if USE_SATD_FOR_DISTORTION
+  distortion += compute_satd8x8_region(&p_Vid->pCurImg[pic_opix_y], &p_Vid->enc_picture->imgY[pic_pix_y], pic_pix_x, pic_pix_x);
+#else
   distortion += compute_SSE8x8(&p_Vid->pCurImg[pic_opix_y], &p_Vid->enc_picture->imgY[pic_pix_y], pic_pix_x, pic_pix_x);
+#endif
   if (distortion > min_rdcost)
   {
     //currSlice->reset_coding_state (currMB, currSlice->p_RDO->cs_cm);
@@ -392,8 +416,12 @@ distblk  rdcost_for_8x8_intra_blocks_444(Macroblock *currMB, int *nonzero, int b
     //===== perform forward transform, Q, IQ, inverse transform, Reconstruction =====
     *nonzero = currMB->residual_transform_quant_luma_8x8 (currMB, PLANE_Y, b8, &dummy, 1);
 
-    //===== get distortion (SSD) of 8x8 block =====
+    //===== get distortion of 8x8 block =====
+  #if USE_SATD_FOR_DISTORTION
+    distortion += compute_satd8x8_region(&p_Vid->pCurImg[pic_opix_y], &p_Vid->enc_picture->imgY[pic_pix_y], pic_pix_x, pic_pix_x);
+  #else
     distortion += compute_SSE8x8(&p_Vid->pCurImg[pic_opix_y], &p_Vid->enc_picture->imgY[pic_pix_y], pic_pix_x, pic_pix_x);
+  #endif
 
     currMB->ipmode_DPCM = NO_INTRA_PMODE;  
 
@@ -435,14 +463,22 @@ distblk  rdcost_for_8x8_intra_blocks_444(Macroblock *currMB, int *nonzero, int b
     //===== perform forward transform, Q, IQ, inverse transform, Reconstruction =====
     *nonzero = currMB->residual_transform_quant_luma_8x8 (currMB, PLANE_Y, b8, &dummy, 1);
 
-    //===== get distortion (SSD) of 8x8 block =====
+    //===== get distortion of 8x8 block =====
+  #if USE_SATD_FOR_DISTORTION
+    distortion += compute_satd8x8_region(&p_Vid->pCurImg[pic_opix_y], &p_Vid->enc_picture->imgY[pic_pix_y], pic_pix_x, pic_pix_x);
+  #else
     distortion += compute_SSE8x8(&p_Vid->pCurImg[pic_opix_y], &p_Vid->enc_picture->imgY[pic_pix_y], pic_pix_x, pic_pix_x);
+  #endif
 
     for (k = PLANE_U; k <= PLANE_V; k++)
     {
       select_plane(p_Vid, k);
       currMB->c_nzCbCr[k ]= currMB->residual_transform_quant_luma_8x8(currMB, k, b8, &dummy,1);
+  #if USE_SATD_FOR_DISTORTION
+      distortion += compute_satd8x8_region(&p_Vid->pImgOrg[k][pic_opix_y], &p_Vid->enc_picture->p_curr_img[pic_pix_y], pic_pix_x, pic_pix_x);
+  #else
       distortion += compute_SSE8x8(&p_Vid->pImgOrg[k][pic_opix_y], &p_Vid->enc_picture->p_curr_img[pic_pix_y], pic_pix_x, pic_pix_x);
+  #endif
     }
     currMB->ipmode_DPCM = NO_INTRA_PMODE;
     select_plane(p_Vid, PLANE_Y);

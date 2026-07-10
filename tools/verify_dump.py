@@ -42,6 +42,15 @@ def parse_mb_key(data):
         'sliceType': fields[4], 'sliceQp': fields[5]
     }
 
+def parse_mb_end(data):
+    if len(data) < 16:
+        return None
+    fields = struct.unpack_from('<IIII', data, 0)
+    return {
+        'mbType': fields[0], 'finalPartWidth': fields[1],
+        'finalPartHeight': fields[2], 'lumaTransformSize8x8Flag': fields[3]
+    }
+
 def parse_block_key(data):
     fields = struct.unpack_from('<IIIIIIIII', data, 0)
     extra = data[36:44]
@@ -126,6 +135,16 @@ def main():
             if not args.quiet:
                 print(f"[MB_BEGIN] pic={mb['picIdx']}, addr={mb['mbAddrX']}, "
                       f"pos=({mb['mbPelX']},{mb['mbPelY']}), QP={mb['sliceQp']}")
+
+        elif tag == 0x0011:
+            mb_end = parse_mb_end(payload)
+            if not args.quiet:
+                if mb_end is None:
+                    print("[MB_END]")
+                else:
+                    print(f"[MB_END] mbType={mb_end['mbType']} "
+                          f"finalPart={mb_end['finalPartWidth']}x{mb_end['finalPartHeight']} "
+                          f"transform8x8={mb_end['lumaTransformSize8x8Flag']}")
 
         elif tag == 0x0020:
             blk = parse_block_key(payload)

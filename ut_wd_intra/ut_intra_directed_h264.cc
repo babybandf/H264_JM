@@ -34,11 +34,13 @@ struct H264DirectedBlockRecord
 struct H264DirectedMbRecord
 {
     H264IntraDump::MbInfo info;
+    H264IntraDump::MbEndInfo endInfo;
     std::vector<H264DirectedBlockRecord> blocks;
 
     void clear()
     {
         memset(&info, 0, sizeof(info));
+        memset(&endInfo, 0, sizeof(endInfo));
         blocks.clear();
     }
 };
@@ -250,6 +252,7 @@ static bool h264_directed_next_mb(H264DirectedMbRecord& out)
             g_h264_directed.pendingMb = *ev.mbInfo;
             return true;
         case H264IntraDump::EventKind::MbEnd:
+            if (ev.mbEndInfo) out.endInfo = *ev.mbEndInfo;
             return true;
         case H264IntraDump::EventKind::BlockBegin:
             out.blocks.push_back(H264DirectedBlockRecord());
@@ -488,7 +491,7 @@ static void h264_directed_sel_response(struct t_intra_test* tester, const t_intr
     sel2intra->size = convert_size_valid_to_size(intra2sel->size_valid);
     sel2intra->avail = true;
     sel2intra->rdo_type = 0;
-    sel2intra->split_flag = 0;
+    sel2intra->split_flag = (sel2intra->size == 2 /*16x16*/ && g_h264_directed.curMb.endInfo.finalPartWidth != 16) ? 1 : 0;
     (void)tester;
 
     int blkSize = 4 << sel2intra->size;
@@ -541,7 +544,7 @@ static void h264_directed_ut_response(struct t_intra_test* tester, const t_intra
         g_h264_directed.curMb, pelX / 4, pelY / 4, sizeIdx, comp);
 
     if (block) {
-        size_t count = block->preds.size() < 4 ? block->preds.size() : 4;
+        size_t count = block->preds.size() < 4 ? 4 : block->preds.size();
         for (size_t i = 0; i < count; i++) {
             resp->pred_info[i].mode = (uint8_t)block->preds[i].modeId;
             resp->pred_info[i].satd = block->preds[i].satd;

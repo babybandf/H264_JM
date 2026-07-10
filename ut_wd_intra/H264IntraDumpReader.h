@@ -83,6 +83,14 @@ struct FinalMode
   uint64_t distortionSatd;
 };
 
+struct MbEndInfo
+{
+  uint32_t mbType;
+  uint32_t finalPartWidth;
+  uint32_t finalPartHeight;
+  uint32_t lumaTransformSize8x8Flag;
+};
+
 struct PelArrayView
 {
   const int16_t* data;
@@ -128,6 +136,7 @@ struct Event
   EventKind::Value kind;
   const SeqInfo* seqInfo;
   const MbInfo* mbInfo;
+  const MbEndInfo* mbEndInfo;
   const BlockInfo* blockInfo;
   const RefSamplesData* refSamples;
   const PelArrayView* reconPels;
@@ -136,7 +145,8 @@ struct Event
   const FinalMode* finalMode;
 
   Event()
-    : kind(EventKind::Eof), seqInfo(NULL), mbInfo(NULL), blockInfo(NULL),
+    : kind(EventKind::Eof), seqInfo(NULL), mbInfo(NULL), mbEndInfo(NULL),
+      blockInfo(NULL),
       refSamples(NULL), reconPels(NULL), predPels(NULL), modeMetric(NULL),
       finalMode(NULL) {}
 };
@@ -160,6 +170,7 @@ private:
 
   std::vector<uint8_t> m_payload;
   MbInfo m_curMb;
+  MbEndInfo m_curMbEnd;
   BlockInfo m_curBlock;
   RefSamplesData m_curRef;
   PelArrayView m_curRecon;

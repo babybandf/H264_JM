@@ -44,7 +44,9 @@
 #include "mv_search.h"
 #include "md_common.h"
 #include "md_distortion.h"
+#include "me_distortion.h"
 #include "intra16x16.h"
+#include "intra_dump.h"
 
 #define FASTMODE 1
 
@@ -61,6 +63,24 @@ static distblk compute_comp4x4_cost(VideoParameters *p_Vid, imgpel **cur_img, im
 
 static distblk rdcost_for_4x4_intra_blocks     (Macroblock *currMB, int* nonzero, int b8, int b4, int ipmode, int lambda, int mostProbableMode, distblk min_rdcost);
 static distblk rdcost_for_4x4_intra_blocks_444 (Macroblock *currMB, int* nonzero, int b8, int b4, int ipmode, int lambda, int mostProbableMode, distblk min_rdcost);
+
+#if USE_SATD_FOR_DISTORTION
+static distblk compute_satd8x8_region(imgpel **imgRef, imgpel **imgSrc, int xRef, int xSrc)
+{
+  short diff[64];
+  short *curDiff = diff;
+
+  for (int j = 0; j < BLOCK_SIZE_8x8; j++)
+  {
+    imgpel *lineRef = &imgRef[j][xRef];
+    imgpel *lineSrc = &imgSrc[j][xSrc];
+    for (int i = 0; i < BLOCK_SIZE_8x8; i++)
+      *curDiff++ = (short)(*lineRef++ - *lineSrc++);
+  }
+
+  return dist_scale(HadamardSAD8x8(diff));
+}
+#endif
 
 static inline void copy_motion_vectors_MB (Slice *currSlice, RD_DATA *rdopt)
 {
@@ -179,6 +199,11 @@ void setupDistCost(Slice *currSlice, InputParameters *p_Inp)
     currSlice->distI16x16      = distI16x16_satd;
     break;
   }
+
+#if USE_SATD_FOR_DISTORTION
+  currSlice->compute_cost8x8 = compute_satd8x8_cost;
+  currSlice->distI16x16      = distI16x16_satd;
+#endif
 }
 
 
@@ -771,13 +796,22 @@ distblk rdcost_for_8x8blocks (Macroblock *currMB, // --> Current macroblock to c
   }
   else
   {    
+#if USE_SATD_FOR_DISTORTION
+    distortion += compute_satd8x8_region(&p_Vid->pCurImg[currMB->opix_y + pay], &p_Vid->enc_picture->imgY[currMB->pix_y + pay], currMB->pix_x + pax, currMB->pix_x + pax);
+#else
     distortion += compute_SSE8x8(&p_Vid->pCurImg[currMB->opix_y + pay], &p_Vid->enc_picture->imgY[currMB->pix_y + pay], currMB->pix_x + pax, currMB->pix_x + pax);
+#endif
   }
     
   if (p_Vid->P444_joined)
   {
+#if USE_SATD_FOR_DISTORTION
+    distortion += compute_satd8x8_region(&p_Vid->pImgOrg[1][currMB->opix_y + pay], &p_Vid->enc_picture->imgUV[0][currMB->pix_y + pay], currMB->pix_x + pax, currMB->pix_x + pax);
+    distortion += compute_satd8x8_region(&p_Vid->pImgOrg[2][currMB->opix_y + pay], &p_Vid->enc_picture->imgUV[1][currMB->pix_y + pay], currMB->pix_x + pax, currMB->pix_x + pax);
+#else
     distortion += compute_SSE8x8(&p_Vid->pImgOrg[1][currMB->opix_y + pay], &p_Vid->enc_picture->imgUV[0][currMB->pix_y + pay], currMB->pix_x + pax, currMB->pix_x + pax);
     distortion += compute_SSE8x8(&p_Vid->pImgOrg[2][currMB->opix_y + pay], &p_Vid->enc_picture->imgUV[1][currMB->pix_y + pay], currMB->pix_x + pax, currMB->pix_x + pax);
+#endif
   }    
   
   // Early termination

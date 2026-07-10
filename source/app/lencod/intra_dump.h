@@ -47,6 +47,13 @@ typedef struct IntraDumpMbKey {
   uint8_t  padding[3];
 } IntraDumpMbKey;
 
+typedef struct IntraDumpMbEnd {
+  uint32_t mbType;
+  uint32_t finalPartWidth;
+  uint32_t finalPartHeight;
+  uint32_t lumaTransformSize8x8Flag;
+} IntraDumpMbEnd;
+
 typedef struct IntraDumpBlockKey {
   uint32_t blockUid;
   uint32_t parentUid;
@@ -132,7 +139,7 @@ void intra_dumper_write_seq_header(IntraDumper* dumper, const IntraDumpSeqInfo* 
 void intra_dumper_begin_picture(IntraDumper* dumper, uint32_t picIdx);
 void intra_dumper_end_picture(IntraDumper* dumper);
 void intra_dumper_begin_mb(IntraDumper* dumper, const IntraDumpMbKey* key);
-void intra_dumper_end_mb(IntraDumper* dumper);
+void intra_dumper_end_mb(IntraDumper* dumper, const IntraDumpMbEnd* end);
 void intra_dumper_begin_block(IntraDumper* dumper, const IntraDumpBlockKey* key);
 void intra_dumper_end_block(IntraDumper* dumper);
 void intra_dumper_dump_ref_samples(IntraDumper* dumper, const imgpel* buf, uint32_t totalLen, int filtered);
@@ -144,7 +151,7 @@ void intra_dumper_dump_final_mode(IntraDumper* dumper, const IntraDumpFinalMode*
 uint64_t intra_dump_compute_satd_4x4(imgpel** org, int orgX, imgpel** pred, int predX);
 uint64_t intra_dump_compute_satd_8x8(imgpel** org, int orgX, imgpel** pred, int predX);
 uint64_t intra_dump_compute_satd_16x16(imgpel** org, int orgX, imgpel** pred, int predX);
-void intra_dumper_flush_post_order(IntraDumper* dumper);
+void intra_dumper_flush_post_order(IntraDumper* dumper, const IntraDumpMbEnd* end);
 uint32_t intra_dumper_alloc_block_uid(IntraDumper* dumper);
 
 #endif

@@ -121,11 +121,11 @@ void intra_dumper_begin_mb(IntraDumper* dumper, const IntraDumpMbKey* key)
   write_tlv(dumper->fp, DUMP_TAG_MB_BEGIN, key, sizeof(IntraDumpMbKey));
 }
 
-void intra_dumper_end_mb(IntraDumper* dumper)
+void intra_dumper_end_mb(IntraDumper* dumper, const IntraDumpMbEnd* end)
 {
   if (!dumper->enabled) return;
-  intra_dumper_flush_post_order(dumper);
-  write_tlv(dumper->fp, DUMP_TAG_MB_END, NULL, 0);
+  intra_dumper_flush_post_order(dumper, end);
+  write_tlv(dumper->fp, DUMP_TAG_MB_END, end, end ? sizeof(IntraDumpMbEnd) : 0);
 
   for (int i = 0; i < dumper->numMbPreRecords; i++) {
     free(dumper->mbPreRecords[i].payload);
@@ -259,7 +259,7 @@ uint64_t intra_dump_compute_satd_16x16(imgpel** org, int orgX, imgpel** pred, in
   return totalSatd;
 }
 
-void intra_dumper_flush_post_order(IntraDumper* dumper)
+void intra_dumper_flush_post_order(IntraDumper* dumper, const IntraDumpMbEnd* end)
 {
   if (!dumper->fpPost) return;
 
@@ -269,7 +269,7 @@ void intra_dumper_flush_post_order(IntraDumper* dumper)
 
   int N = dumper->numMbBlocks;
   if (N == 0) {
-    write_tlv(dumper->fpPost, DUMP_TAG_MB_END, NULL, 0);
+    write_tlv(dumper->fpPost, DUMP_TAG_MB_END, end, end ? sizeof(IntraDumpMbEnd) : 0);
     fflush(dumper->fpPost);
     return;
   }
@@ -360,7 +360,7 @@ void intra_dumper_flush_post_order(IntraDumper* dumper)
     }
   }
 
-  write_tlv(dumper->fpPost, DUMP_TAG_MB_END, NULL, 0);
+  write_tlv(dumper->fpPost, DUMP_TAG_MB_END, end, end ? sizeof(IntraDumpMbEnd) : 0);
   fflush(dumper->fpPost);
 
   for (int i = 0; i < N; i++) {

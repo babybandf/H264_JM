@@ -30,9 +30,6 @@
 #include "mv_search.h"
 #include "intra_dump.h"
 
-extern void set_intrapred_chroma(Macroblock *currMB, int *left_available, int *up_available, int *all_available);
-extern void set_intrapred_chroma_mbaff(Macroblock *currMB, ColorPlane pl, int *left_available, int *up_available, int *all_available);
-
 static uint8_t intra_dump_chroma_mode_kind(int mode)
 {
   switch (mode)
@@ -45,114 +42,18 @@ static uint8_t intra_dump_chroma_mode_kind(int mode)
   }
 }
 
-static void intra_dump_make_chroma_pred(Macroblock *currMB, int uv, int mode,
-                                        imgpel pred[MB_BLOCK_SIZE][MB_BLOCK_SIZE], imgpel *predRows[MB_BLOCK_SIZE])
-{
-  VideoParameters *p_Vid = currMB->p_Vid;
-  InputParameters *p_Inp = currMB->p_Inp;
-  imgpel **img = p_Vid->enc_picture->imgUV[uv];
-  PixelPos pixLeft, pixUp, pixUpLeft;
-  int availableLeft, availableUp, availableUpLeft;
-  int w = p_Vid->mb_cr_size_x;
-  int h = p_Vid->mb_cr_size_y;
-  imgpel dc = (imgpel)p_Vid->dc_pred_value_comp[uv + 1];
-  imgpel top[MB_BLOCK_SIZE];
-  imgpel left[MB_BLOCK_SIZE];
-  imgpel topLeft;
-
-  for (int y = 0; y < MB_BLOCK_SIZE; y++)
-    predRows[y] = pred[y];
-
-  p_Vid->getNeighbour(currMB, -1, -1, p_Vid->mb_size[IS_CHROMA], &pixUpLeft);
-  p_Vid->getNeighbour(currMB,  0, -1, p_Vid->mb_size[IS_CHROMA], &pixUp);
-  p_Vid->getNeighbour(currMB, -1,  0, p_Vid->mb_size[IS_CHROMA], &pixLeft);
-
-  availableLeft = pixLeft.available;
-  availableUp = pixUp.available;
-  availableUpLeft = pixUpLeft.available;
-
-  if (p_Inp->UseConstrainedIntraPred)
-  {
-    availableLeft = pixLeft.available ? p_Vid->intra_block[pixLeft.mb_addr] : 0;
-    availableUp = pixUp.available ? p_Vid->intra_block[pixUp.mb_addr] : 0;
-    availableUpLeft = pixUpLeft.available ? p_Vid->intra_block[pixUpLeft.mb_addr] : 0;
-  }
-
-  topLeft = availableUpLeft ? img[pixUpLeft.pos_y][pixUpLeft.pos_x] : dc;
-  for (int x = 0; x < w; x++)
-    top[x] = availableUp ? img[pixUp.pos_y][pixUp.pos_x + x] : dc;
-  for (int y = 0; y < h; y++)
-    left[y] = availableLeft ? img[pixLeft.pos_y + y][pixLeft.pos_x] : dc;
-
-  if (mode == VERT_PRED_8)
-  {
-    for (int y = 0; y < h; y++)
-      memcpy(pred[y], top, w * sizeof(imgpel));
-  }
-  else if (mode == HOR_PRED_8)
-  {
-    for (int y = 0; y < h; y++)
-      for (int x = 0; x < w; x++)
-        pred[y][x] = left[y];
-  }
-  else if (mode == PLANE_8)
-  {
-    int crX = w >> 1;
-    int crY = h >> 1;
-    int ih, iv, ib, ic, iaa;
-    if (crY > 8)
-      crY = 8;
-
-    ih = crX * (top[w - 1] - topLeft);
-    for (int x = 0; x < crX - 1; x++)
-      ih += (x + 1) * (top[crX + x] - top[crX - 2 - x]);
-
-    iv = crY * (left[h - 1] - topLeft);
-    for (int y = 0; y < crY - 1; y++)
-      iv += (y + 1) * (left[crY + y] - left[crY - 2 - y]);
-
-    ib = w == 8 ? (17 * ih + 2 * w) >> 5 : (5 * ih + 2 * w) >> 6;
-    ic = h == 8 ? (17 * iv + 2 * h) >> 5 : (5 * iv + 2 * h) >> 6;
-    iaa = 16 * (top[w - 1] + left[h - 1]) + (1 - crX) * ib + (1 - crY) * ic;
-
-    for (int y = 0; y < h; y++)
-      for (int x = 0; x < w; x++)
-        pred[y][x] = (imgpel)iClip1(p_Vid->max_pel_value_comp[uv + 1], (iaa + x * ib + y * ic + 16) >> 5);
-  }
-  else
-  {
-    for (int by = 0; by < h; by += BLOCK_SIZE)
-    {
-      for (int bx = 0; bx < w; bx += BLOCK_SIZE)
-      {
-        int topSum = 0;
-        int leftSum = 0;
-        imgpel value = dc;
-
-        for (int i = 0; i < BLOCK_SIZE; i++)
-        {
-          topSum += top[bx + i];
-          leftSum += left[by + i];
-        }
-
-        if (availableUp && availableLeft)
-          value = (imgpel)((topSum + leftSum + 4) >> 3);
-        else if (availableUp)
-          value = (imgpel)((topSum + 2) >> 2);
-        else if (availableLeft)
-          value = (imgpel)((leftSum + 2) >> 2);
-
-        for (int y = by; y < by + BLOCK_SIZE; y++)
-          for (int x = bx; x < bx + BLOCK_SIZE; x++)
-            pred[y][x] = value;
-      }
-    }
-  }
-}
-
 static uint64_t intra_dump_compute_satd_chroma(imgpel** org, int orgX, imgpel** pred, int predX, int w, int h)
 {
   uint64_t satd = 0;
+#if USE_SATD_FOR_DISTORTION
+  for (int y = 0; y < h; y += BLOCK_SIZE_8x8)
+  {
+    for (int x = 0; x < w; x += BLOCK_SIZE_8x8)
+    {
+      satd += intra_dump_compute_satd_8x8(org + y, orgX + x, pred + y, predX + x);
+    }
+  }
+#else
   for (int y = 0; y < h; y += BLOCK_SIZE)
   {
     for (int x = 0; x < w; x += BLOCK_SIZE)
@@ -160,6 +61,7 @@ static uint64_t intra_dump_compute_satd_chroma(imgpel** org, int orgX, imgpel** 
       satd += intra_dump_compute_satd_4x4(org + y, orgX + x, pred + y, predX + x);
     }
   }
+#endif
   return satd;
 }
 
@@ -210,9 +112,52 @@ static void intra_dump_dump_chroma_blocks(Macroblock *currMB, IntraDumper *dumpe
     return;
 
   if (p_Vid->mb_aff_frame_flag && p_Vid->field_mode)
-    set_intrapred_chroma_mbaff(currMB, PLANE_U, &leftAvailable, &upAvailable, &allAvailable);
+  {
+    PixelPos pix_b;
+    PixelPos pix_a[17];
+    int *mb_size = p_Vid->mb_size[IS_CHROMA];
+
+    for (int i = 0; i < h + 1; ++i)
+      p_Vid->getNeighbour(currMB, -1, i - 1, mb_size, &pix_a[i]);
+    p_Vid->getNeighbour(currMB, 0, -1, mb_size, &pix_b);
+
+    if (currMB->p_Inp->UseConstrainedIntraPred == 0)
+    {
+      upAvailable = pix_b.available;
+      leftAvailable = pix_a[1].available;
+      allAvailable = pix_a[0].available;
+    }
+    else
+    {
+      upAvailable = pix_b.available ? p_Vid->intra_block[pix_b.mb_addr] : 0;
+      leftAvailable = 1;
+      for (int i = 1; i < h + 1; ++i)
+        leftAvailable &= pix_a[i].available ? p_Vid->intra_block[pix_a[i].mb_addr] : 0;
+      allAvailable = pix_a[0].available ? p_Vid->intra_block[pix_a[0].mb_addr] : 0;
+    }
+  }
   else
-    set_intrapred_chroma(currMB, &leftAvailable, &upAvailable, &allAvailable);
+  {
+    PixelPos pix_c;
+    PixelPos pix_d;
+    PixelPos pix_a;
+    int *mb_size = p_Vid->mb_size[IS_CHROMA];
+
+    p_Vid->getNeighbour(currMB, -1, -1, mb_size, &pix_d);
+    p_Vid->getNeighbour(currMB, -1, 0, mb_size, &pix_a);
+    p_Vid->getNeighbour(currMB, 0, -1, mb_size, &pix_c);
+
+    upAvailable = pix_c.available;
+    leftAvailable = pix_a.available;
+    allAvailable = pix_d.available;
+
+    if (currMB->p_Inp->UseConstrainedIntraPred)
+    {
+      upAvailable = pix_c.available ? p_Vid->intra_block[pix_c.mb_addr] : 0;
+      leftAvailable = pix_a.available ? p_Vid->intra_block[pix_a.mb_addr] : 0;
+      allAvailable = pix_d.available ? p_Vid->intra_block[pix_d.mb_addr] : 0;
+    }
+  }
 
   for (int uv = 0; uv < 2; uv++)
   {
@@ -220,6 +165,7 @@ static void intra_dump_dump_chroma_blocks(Macroblock *currMB, IntraDumper *dumpe
     imgpel ref[33];
     int refLen = 0;
     uint64_t bestSatd = 0;
+    imgpel ***curr_mpr_16x16 = currSlice->mpr_16x16[uv + 1];
 
     memset(&blockKey, 0, sizeof(blockKey));
     blockKey.blockUid = intra_dumper_alloc_block_uid(dumper);
@@ -242,9 +188,16 @@ static void intra_dump_dump_chroma_blocks(Macroblock *currMB, IntraDumper *dumpe
 
     for (int mode = DC_PRED_8; mode <= PLANE_8; mode++)
     {
-      imgpel predStorage[MB_BLOCK_SIZE][MB_BLOCK_SIZE];
-      imgpel *predRows[MB_BLOCK_SIZE];
-      intra_dump_make_chroma_pred(currMB, uv, mode, predStorage, predRows);
+      imgpel **predRows;
+      int modeAvailable = (mode == DC_PRED_8)
+        || (mode == VERT_PRED_8 && upAvailable)
+        || (mode == HOR_PRED_8 && leftAvailable)
+        || (mode == PLANE_8 && leftAvailable && upAvailable && allAvailable);
+
+      if (!modeAvailable)
+        continue;
+
+      predRows = curr_mpr_16x16[mode];
       uint64_t satd = intra_dump_compute_satd_chroma(
         &p_Vid->pImgOrg[uv + 1][currMB->opix_c_y], currMB->pix_c_x,
         predRows, 0, w, h);
@@ -268,6 +221,39 @@ static void intra_dump_dump_chroma_blocks(Macroblock *currMB, IntraDumper *dumpe
     intra_dumper_dump_final_mode(dumper, &final);
     intra_dumper_dump_recon_pels(dumper, &p_Vid->enc_picture->imgUV[uv][currMB->pix_c_y], (uint32_t)currMB->pix_c_x, (uint32_t)w, (uint32_t)h);
     intra_dumper_end_block(dumper);
+  }
+}
+
+static void intra_dump_fill_mb_end(Macroblock *currMB, IntraDumpMbEnd *end)
+{
+  memset(end, 0, sizeof(*end));
+  end->mbType = (uint32_t)currMB->mb_type;
+  end->lumaTransformSize8x8Flag = (uint32_t)currMB->luma_transform_size_8x8_flag;
+
+  switch (currMB->mb_type)
+  {
+  case I4MB:
+  case SI4MB:
+    end->finalPartWidth = 4;
+    end->finalPartHeight = 4;
+    break;
+  case I8MB:
+  case P8x8:
+    end->finalPartWidth = 8;
+    end->finalPartHeight = 8;
+    break;
+  case P16x8:
+    end->finalPartWidth = 16;
+    end->finalPartHeight = 8;
+    break;
+  case P8x16:
+    end->finalPartWidth = 8;
+    end->finalPartHeight = 16;
+    break;
+  default:
+    end->finalPartWidth = 16;
+    end->finalPartHeight = 16;
+    break;
   }
 }
 
@@ -565,8 +551,12 @@ void encode_one_macroblock_high (Macroblock *currMB)
   if (p_Inp->RestrictRef)
     update_refresh_map(currMB, intra, intra1);
 
-  intra_dump_dump_chroma_blocks(currMB, dumper);
-  intra_dumper_end_mb(dumper);
+  if (dumper->enabled) {
+    IntraDumpMbEnd mbEnd;
+    intra_dump_fill_mb_end(currMB, &mbEnd);
+    intra_dump_dump_chroma_blocks(currMB, dumper);
+    intra_dumper_end_mb(dumper, &mbEnd);
+  }
 }
 
 

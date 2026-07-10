@@ -27,6 +27,8 @@
 #include "macroblock.h"
 #include "mv_search.h"
 #include "md_distortion.h"
+#include "me_distortion.h"
+#include "intra_dump.h"
 
 void setupDistortion(Slice *currSlice)
 {
@@ -73,6 +75,34 @@ distblk compute_SSE_cr(imgpel **imgRef, imgpel **imgSrc, int xRef, int xSrc, int
 
   return dist_scale(distortion);
 }
+
+#if USE_SATD_FOR_DISTORTION
+static distblk compute_SATD8x8_region(imgpel **imgRef, imgpel **imgSrc, int xRef, int xSrc, int ySize, int xSize)
+{
+  distblk distortion = 0;
+
+  for (int y = 0; y < ySize; y += BLOCK_SIZE_8x8)
+  {
+    for (int x = 0; x < xSize; x += BLOCK_SIZE_8x8)
+    {
+      short diff[64];
+      short *curDiff = diff;
+
+      for (int j = 0; j < BLOCK_SIZE_8x8; j++)
+      {
+        imgpel *lineRef = &imgRef[y + j][xRef + x];
+        imgpel *lineSrc = &imgSrc[y + j][xSrc + x];
+        for (int i = 0; i < BLOCK_SIZE_8x8; i++)
+          *curDiff++ = (short)(*lineRef++ - *lineSrc++);
+      }
+
+      distortion += HadamardSAD8x8(diff);
+    }
+  }
+
+  return dist_scale(distortion);
+}
+#endif
 
 /*!
  ***********************************************************************
@@ -181,13 +211,22 @@ distblk distortionSSE(Macroblock *currMB)
   distblk distortionCr[2] = {0, 0};
 
   // LUMA
+#if USE_SATD_FOR_DISTORTION
+  distortionY = compute_SATD8x8_region(&p_Vid->pCurImg[currMB->opix_y], &p_Vid->enc_picture->p_curr_img[currMB->pix_y], currMB->pix_x, currMB->pix_x, MB_BLOCK_SIZE, MB_BLOCK_SIZE);
+#else
   distortionY = compute_SSE16x16(&p_Vid->pCurImg[currMB->opix_y], &p_Vid->enc_picture->p_curr_img[currMB->pix_y], currMB->pix_x, currMB->pix_x);
+#endif
 
   // CHROMA
   if ((p_Vid->yuv_format != YUV400) && (p_Inp->separate_colour_plane_flag == 0))
   {
+#if USE_SATD_FOR_DISTORTION
+  distortionCr[0] = compute_SATD8x8_region(&p_Vid->pImgOrg[1][currMB->opix_c_y], &p_Vid->enc_picture->imgUV[0][currMB->pix_c_y], currMB->pix_c_x, currMB->pix_c_x, p_Vid->mb_cr_size_y, p_Vid->mb_cr_size_x);
+  distortionCr[1] = compute_SATD8x8_region(&p_Vid->pImgOrg[2][currMB->opix_c_y], &p_Vid->enc_picture->imgUV[1][currMB->pix_c_y], currMB->pix_c_x, currMB->pix_c_x, p_Vid->mb_cr_size_y, p_Vid->mb_cr_size_x);
+#else
     distortionCr[0] = compute_SSE_cr(&p_Vid->pImgOrg[1][currMB->opix_c_y], &p_Vid->enc_picture->imgUV[0][currMB->pix_c_y], currMB->pix_c_x, currMB->pix_c_x, p_Vid->mb_cr_size_y, p_Vid->mb_cr_size_x);
     distortionCr[1] = compute_SSE_cr(&p_Vid->pImgOrg[2][currMB->opix_c_y], &p_Vid->enc_picture->imgUV[1][currMB->pix_c_y], currMB->pix_c_x, currMB->pix_c_x, p_Vid->mb_cr_size_y, p_Vid->mb_cr_size_x);
+#endif
   }
 #if JCOST_OVERFLOWCHECK //overflow checking;
   if(distortionY * p_Inp->WeightY + distortionCr[0] * p_Inp->WeightCb + distortionCr[1] * p_Inp->WeightCr > DISTBLK_MAX)

@@ -74,7 +74,9 @@ bool Reader::next(Event& out)
     break;
 
   case TAG_MB_END:
+    if (m_payload.size() >= sizeof(MbEndInfo)) memcpy(&m_curMbEnd, &m_payload[0], sizeof(MbEndInfo));
     out.kind = EventKind::MbEnd;
+    out.mbEndInfo = &m_curMbEnd;
     break;
 
   case TAG_BLOCK_BEGIN:
