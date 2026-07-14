@@ -27,12 +27,17 @@ MODE_KINDS = {
 }
 
 def parse_seq_header(data):
-    fields = struct.unpack_from('<IIIIIIIIx', data, 0)
-    return {
+    fields = struct.unpack_from('<IIIIIIIBxxx', data, 0)
+    seq = {
         'picW': fields[0], 'picH': fields[1], 'mbSize': fields[2],
         'chromaFmt': fields[3], 'bitDepthL': fields[4], 'bitDepthC': fields[5],
         'baseQp': fields[6], 'useDqp': fields[7]
     }
+    if len(data) >= 40:
+        seq['srcW'], seq['srcH'] = struct.unpack_from('<II', data, 32)
+    else:
+        seq['srcW'], seq['srcH'] = seq['picW'], seq['picH']
+    return seq
 
 def parse_mb_key(data):
     fields = struct.unpack_from('<IIIIIbxxx', data, 0)

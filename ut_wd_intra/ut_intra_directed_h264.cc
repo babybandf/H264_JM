@@ -112,10 +112,34 @@ static uint32_t h264_directed_chroma_width(const H264IntraDump::SeqInfo& seq)
     return (seq.chromaFormat == 1 || seq.chromaFormat == 2) ? seq.picWidthLuma / 2 : seq.picWidthLuma;
 }
 
+static uint32_t h264_directed_source_width(const H264IntraDump::SeqInfo& seq)
+{
+    return seq.srcWidthLuma ? seq.srcWidthLuma : seq.picWidthLuma;
+}
+
+static uint32_t h264_directed_source_height(const H264IntraDump::SeqInfo& seq)
+{
+    return seq.srcHeightLuma ? seq.srcHeightLuma : seq.picHeightLuma;
+}
+
+static uint32_t h264_directed_source_chroma_width(const H264IntraDump::SeqInfo& seq)
+{
+    uint32_t srcWidth = h264_directed_source_width(seq);
+    if (seq.chromaFormat == 0) return 0;
+    return (seq.chromaFormat == 1 || seq.chromaFormat == 2) ? srcWidth / 2 : srcWidth;
+}
+
 static uint32_t h264_directed_chroma_height(const H264IntraDump::SeqInfo& seq)
 {
     if (seq.chromaFormat == 0) return 0;
     return (seq.chromaFormat == 1) ? seq.picHeightLuma / 2 : seq.picHeightLuma;
+}
+
+static uint32_t h264_directed_source_chroma_height(const H264IntraDump::SeqInfo& seq)
+{
+    uint32_t srcHeight = h264_directed_source_height(seq);
+    if (seq.chromaFormat == 0) return 0;
+    return (seq.chromaFormat == 1) ? srcHeight / 2 : srcHeight;
 }
 
 static int h264_directed_yuv_format(const H264IntraDump::SeqInfo& seq)
@@ -152,12 +176,14 @@ static H264IntraDump::SeqInfo h264_directed_init(const std::string& dumpPath, co
     g_h264_directed.seq = g_h264_directed.reader->seqInfo();
     const H264IntraDump::SeqInfo& seq = g_h264_directed.seq;
     uint32_t chromaW = h264_directed_chroma_width(seq);
+    uint32_t srcChromaW = h264_directed_source_chroma_width(seq);
+    uint32_t srcChromaH = h264_directed_source_chroma_height(seq);
     uint32_t chromaH = h264_directed_chroma_height(seq);
     uint32_t bytesL = (seq.bitDepthLuma > 8) ? 2U : 1U;
     uint32_t bytesC = (seq.bitDepthChroma > 8) ? 2U : 1U;
 
-    g_h264_directed.frameBytes = (uint64_t)seq.picWidthLuma * seq.picHeightLuma * bytesL +
-        2ULL * chromaW * chromaH * bytesC;
+    g_h264_directed.frameBytes = (uint64_t)h264_directed_source_width(seq) * h264_directed_source_height(seq) * bytesL +
+        2ULL * srcChromaW * srcChromaH * bytesC;
     g_h264_directed.aboveReconY.assign(seq.picWidthLuma, 0);
     g_h264_directed.aboveReconU.assign(chromaW, 0);
     g_h264_directed.aboveReconV.assign(chromaW, 0);
@@ -167,8 +193,10 @@ static H264IntraDump::SeqInfo h264_directed_init(const std::string& dumpPath, co
     printf("=== H.264 Directed Mode ===\n");
     printf("  Dump: %s\n", dumpPath.c_str());
     printf("  YUV:  %s\n", yuvPath.c_str());
-    printf("  Resolution: %ux%u, MB: %u, BitDepth: %u/%u, ChromaFmt: %u\n",
-           seq.picWidthLuma, seq.picHeightLuma, seq.mbSize,
+    printf("  Resolution: %ux%u, Source: %ux%u, MB: %u, BitDepth: %u/%u, ChromaFmt: %u\n",
+           seq.picWidthLuma, seq.picHeightLuma,
+           h264_directed_source_width(seq), h264_directed_source_height(seq),
+           seq.mbSize,
            seq.bitDepthLuma, seq.bitDepthChroma, seq.chromaFormat);
 
     return seq;
@@ -187,13 +215,15 @@ static void h264_directed_load_yuv_frame(int picIdx)
 {
     const H264IntraDump::SeqInfo& seq = g_h264_directed.seq;
     H264DirectedYuvFrame& frame = g_h264_directed.frame;
-    uint32_t yPels = seq.picWidthLuma * seq.picHeightLuma;
-    uint32_t chromaW = h264_directed_chroma_width(seq);
-    uint32_t chromaH = h264_directed_chroma_height(seq);
+    uint32_t srcWidth = h264_directed_source_width(seq);
+    uint32_t srcHeight = h264_directed_source_height(seq);
+    uint32_t yPels = srcWidth * srcHeight;
+    uint32_t chromaW = h264_directed_source_chroma_width(seq);
+    uint32_t chromaH = h264_directed_source_chroma_height(seq);
     uint32_t cPels = chromaW * chromaH;
 
-    frame.width = seq.picWidthLuma;
-    frame.height = seq.picHeightLuma;
+    frame.width = srcWidth;
+    frame.height = srcHeight;
     frame.chromaW = chromaW;
     frame.chromaH = chromaH;
     frame.y.assign(yPels, 0);
@@ -500,13 +530,31 @@ static void h264_directed_sel_response(struct t_intra_test* tester, const t_intr
         if (!block || !block->hasRecon || block->reconPels.empty()) continue;
         int edgeSize = (comp != 0 && g_h264_directed.seq.chromaFormat == 1) ? blkSize / 2 : blkSize;
         if (edgeSize < 1) edgeSize = 1;
-        for (int i = 0; i < edgeSize && i < 16; i++) {
-            int16_t val = (i < (int)block->reconH && block->reconW > 0) ? block->reconPels[(size_t)i * block->reconW + (block->reconW - 1)] : 0;
-            sel2intra->recon_data[comp][0].recon[i] = (uint16_t)val;
-        }
-        for (int i = 0; i < edgeSize && edgeSize + i < 16; i++) {
-            int16_t val = (i < (int)block->reconW && block->reconH > 0) ? block->reconPels[(size_t)(block->reconH - 1) * block->reconW + i] : 0;
-            sel2intra->recon_data[comp][0].recon[edgeSize + i] = (uint16_t)val;
+        if (edgeSize >= 16) {
+            int numChunksPerEdge = edgeSize / 16;
+            for (int chunk = 0; chunk < numChunksPerEdge; chunk++) {
+                for (int i = 0; i < 16; i++) {
+                    int y = chunk * 16 + i;
+                    int16_t val = (y < (int)block->reconH && block->reconW > 0) ? block->reconPels[(size_t)y * block->reconW + (block->reconW - 1)] : 0;
+                    sel2intra->recon_data[comp][chunk].recon[i] = (uint16_t)val;
+                }
+            }
+            for (int chunk = 0; chunk < numChunksPerEdge; chunk++) {
+                for (int i = 0; i < 16; i++) {
+                    int x = chunk * 16 + i;
+                    int16_t val = (x < (int)block->reconW && block->reconH > 0) ? block->reconPels[(size_t)(block->reconH - 1) * block->reconW + x] : 0;
+                    sel2intra->recon_data[comp][numChunksPerEdge + chunk].recon[i] = (uint16_t)val;
+                }
+            }
+        } else {
+            for (int i = 0; i < edgeSize && i < 16; i++) {
+                int16_t val = (i < (int)block->reconH && block->reconW > 0) ? block->reconPels[(size_t)i * block->reconW + (block->reconW - 1)] : 0;
+                sel2intra->recon_data[comp][0].recon[i] = (uint16_t)val;
+            }
+            for (int i = 0; i < edgeSize && edgeSize + i < 16; i++) {
+                int16_t val = (i < (int)block->reconW && block->reconH > 0) ? block->reconPels[(size_t)(block->reconH - 1) * block->reconW + i] : 0;
+                sel2intra->recon_data[comp][0].recon[edgeSize + i] = (uint16_t)val;
+            }
         }
     }
 }

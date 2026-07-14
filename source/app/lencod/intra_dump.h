@@ -35,6 +35,8 @@ typedef struct IntraDumpSeqInfo {
   uint32_t baseQp;
   uint8_t  useDqp;
   uint8_t  padding[3];
+  uint32_t srcWidthLuma;
+  uint32_t srcHeightLuma;
 } IntraDumpSeqInfo;
 
 typedef struct IntraDumpMbKey {

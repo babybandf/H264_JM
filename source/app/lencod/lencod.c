@@ -896,6 +896,7 @@ static void encode_sequence(VideoParameters *p_Vid, InputParameters *p_Inp)
   IntraDumper* dumper = intra_dumper_get_instance();
   if (dumper->enabled) {
     IntraDumpSeqInfo info;
+    memset(&info, 0, sizeof(info));
     info.picWidthLuma = (uint32_t)p_Vid->width;
     info.picHeightLuma = (uint32_t)p_Vid->height;
     info.mbSize = 16;
@@ -904,6 +905,8 @@ static void encode_sequence(VideoParameters *p_Vid, InputParameters *p_Inp)
     info.bitDepthChroma = (uint32_t)p_Vid->bitdepth_chroma;
     info.baseQp = (uint32_t)p_Vid->qp;
     info.useDqp = 0;
+    info.srcWidthLuma = (uint32_t)p_Inp->source.width[0];
+    info.srcHeightLuma = (uint32_t)p_Inp->source.height[0];
     intra_dumper_write_seq_header(dumper, &info);
   }
 

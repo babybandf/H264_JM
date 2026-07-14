@@ -1,13 +1,13 @@
 #!/bin/bash
 
-CASE=akiyo
+CASE=akiyo_64x64
 FRAMES=1
 
-ALL_CASES="akiyo football city256 city352"
+ALL_CASES="akiyo_64x64 akiyo_cif city_256x256 city_352x288 football_128x128"
 
 usage() {
     echo "Usage: $0 [-c case] [-n frames] [-h]"
-    echo "  -c case    Test case: akiyo (default), football, city256, city352, all"
+    echo "  -c case    Test case: akiyo_64x64 (default), akiyo_cif, city_256x256, city_352x288, football_128x128, all"
     echo "  -n frames  Number of frames to encode (default: 1)"
     echo "  -h         Show this help"
     exit 0
@@ -25,29 +25,35 @@ done
 setup_case() {
     local c=$1
     case "$c" in
-        akiyo)
+        akiyo_64x64)
+            INPUT_FILE=./sequences/akiyo_64x64.yuv
+            SOURCE_WIDTH=64
+            SOURCE_HEIGHT=64
+            BITSTREAM_FILE=./stream_akiyo_64x64.264
+            ;;
+        akiyo_cif)
             INPUT_FILE=./sequences/akiyo_cif.yuv
             SOURCE_WIDTH=352
             SOURCE_HEIGHT=288
             BITSTREAM_FILE=./stream_akiyo_cif.264
             ;;
-        football)
-            INPUT_FILE=./sequences/football_cif.yuv
-            SOURCE_WIDTH=352
-            SOURCE_HEIGHT=288
-            BITSTREAM_FILE=./stream_football_cif.264
-            ;;
-        city256)
-            INPUT_FILE=./sequences/city_256x256.yuv
+        city_256x256)
+            INPUT_FILE=./sequences/city_256x256_10f_420p.yuv
             SOURCE_WIDTH=256
             SOURCE_HEIGHT=256
             BITSTREAM_FILE=./stream_city_256x256.264
             ;;
-        city352)
-            INPUT_FILE=./sequences/city_cif.yuv
+        city_352x288)
+            INPUT_FILE=./sequences/city_352x288_10f_420p.yuv
             SOURCE_WIDTH=352
             SOURCE_HEIGHT=288
-            BITSTREAM_FILE=./stream_city_cif.264
+            BITSTREAM_FILE=./stream_city_352x288.264
+            ;;
+        football_128x128)
+            INPUT_FILE=./sequences/football_128x128_420p.yuv
+            SOURCE_WIDTH=128
+            SOURCE_HEIGHT=128
+            BITSTREAM_FILE=./stream_football_128x128.264
             ;;
         *)
             echo "Unknown case: $c"

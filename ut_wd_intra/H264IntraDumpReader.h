@@ -34,6 +34,8 @@ struct SeqInfo
   uint32_t baseQp;
   uint8_t  useDqp;
   uint8_t  padding[3];
+  uint32_t srcWidthLuma;
+  uint32_t srcHeightLuma;
 };
 
 struct MbInfo

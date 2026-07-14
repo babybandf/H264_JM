@@ -37,9 +37,13 @@ bool Reader::parseSeqHeader()
   uint32_t tag = 0;
   std::vector<uint8_t> payload;
   if (!readRecord(tag, payload)) return false;
-  if (tag != TAG_SEQ_HEADER || payload.size() < sizeof(SeqInfo)) return false;
+  if (tag != TAG_SEQ_HEADER || payload.size() < 32) return false;
 
-  memcpy(&m_seqInfo, &payload[0], sizeof(SeqInfo));
+  memset(&m_seqInfo, 0, sizeof(m_seqInfo));
+  size_t copySize = payload.size() < sizeof(SeqInfo) ? payload.size() : sizeof(SeqInfo);
+  memcpy(&m_seqInfo, &payload[0], copySize);
+  if (m_seqInfo.srcWidthLuma == 0) m_seqInfo.srcWidthLuma = m_seqInfo.picWidthLuma;
+  if (m_seqInfo.srcHeightLuma == 0) m_seqInfo.srcHeightLuma = m_seqInfo.picHeightLuma;
   m_seqValid = true;
   m_posAfterSeq = ftell(m_fp);
   return true;
@@ -59,8 +63,12 @@ bool Reader::next(Event& out)
 
   switch (tag) {
   case TAG_SEQ_HEADER:
-    if (m_payload.size() >= sizeof(SeqInfo)) {
-      memcpy(&m_seqInfo, &m_payload[0], sizeof(SeqInfo));
+    if (m_payload.size() >= 32) {
+      memset(&m_seqInfo, 0, sizeof(m_seqInfo));
+      size_t copySize = m_payload.size() < sizeof(SeqInfo) ? m_payload.size() : sizeof(SeqInfo);
+      memcpy(&m_seqInfo, &m_payload[0], copySize);
+      if (m_seqInfo.srcWidthLuma == 0) m_seqInfo.srcWidthLuma = m_seqInfo.picWidthLuma;
+      if (m_seqInfo.srcHeightLuma == 0) m_seqInfo.srcHeightLuma = m_seqInfo.picHeightLuma;
       m_seqValid = true;
     }
     out.kind = EventKind::SeqHeader;
